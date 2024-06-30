@@ -1,0 +1,3 @@
+add_executable(test_option test_option.cpp)
+target_link_libraries(test_option better_option)
+add_test(NAME test_option COMMAND test_option)
