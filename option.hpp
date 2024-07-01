@@ -365,6 +365,8 @@ template <> struct OptionStorage<Void> {
         return *this;
     }
 
+    ~OptionStorage() = default;
+
   private:
     explicit OptionStorage(bool initialized) noexcept : _is_some{initialized} {}
 
@@ -409,6 +411,8 @@ template <class T> struct OptionStorage<Ref<T>> {
         return *this;
     }
 
+    ~OptionStorage() = default;
+
   private:
     explicit OptionStorage(T *raw) noexcept : raw_value{raw} {}
 
@@ -416,6 +420,13 @@ template <class T> struct OptionStorage<Ref<T>> {
 };
 
 template <class T> struct Option : private OptionStorage<T> {
+    static_assert(!std::is_same_v<T, void>,
+                  "built-in void type cannot be supported as a type parameter. "
+                  "Use better::Void");
+    static_assert(!std::is_reference_v<T>,
+                  "built-in reference types cannot be supported as a type "
+                  "parameter. Use better::Ref");
+
   private:
     using Base = OptionStorage<T>;
 
@@ -435,6 +446,38 @@ template <class T> struct Option : private OptionStorage<T> {
             return take().unwrap_unsafe();
         } else {
             throw std::runtime_error("attempt to unwrap None");
+        }
+    }
+
+    T unwrap_or_default() &&
+        requires std::is_default_constructible_v<T>
+    {
+        if (is_some()) {
+            return take().unwrap_unsafe();
+        } else {
+            return T{};
+        }
+    }
+
+    template <class U>
+    T unwrap_or(U &&default_val) &&
+        requires std::is_constructible_v<T, U &&>
+    {
+        if (is_some()) {
+            return take().unwrap_unsafe();
+        } else {
+            return T{std::forward<U>(default_val)};
+        }
+    }
+
+    template <class F>
+    T unwrap_or_else(F &&on_none) &&
+        requires std::is_invocable_r_v<T, F &&>
+    {
+        if (is_some()) {
+            return take().unwrap_unsafe();
+        } else {
+            return std::invoke(std::forward<F>(on_none));
         }
     }
 
@@ -471,8 +514,9 @@ template <class T> struct Option : private OptionStorage<T> {
             }
         } else {
             if constexpr (std::is_reference_v<ResultT>) {
-                static_assert(std::is_lvalue_reference_v<ResultT>,
-                              "Optional doesn't support rvalue references");
+                static_assert(
+                    std::is_lvalue_reference_v<ResultT>,
+                    "better::Option doesn't support rvalue references");
                 using OptT = Option<Ref<std::remove_reference_t<ResultT>>>;
                 if (is_some()) {
                     return OptT{Some,
