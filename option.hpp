@@ -1,11 +1,22 @@
 /*
 Copyright 2024 Dmitry Sviridkin
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the “Software”), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the “Software”), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
 
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 
 #pragma once
@@ -152,20 +163,21 @@ template <class T> struct OptionStorage {
             std::memcpy(&result, this, sizeof(result));
             this->reset();
             return result;
-        }
-        if (!this->_initialized) {
-            return OptionStorage<T>(None);
         } else {
-            OptionStorage<T> result{Some, std::move(unwrap_unsafe())};
-            this->reset();
-            return result;
+            if (!this->_initialized) {
+                return OptionStorage<T>(None);
+            } else {
+                OptionStorage<T> result{Some, std::move(unwrap_unsafe())};
+                this->reset();
+                return result;
+            }
         }
     }
 
     template <class... Args>
-    OptionStorage<T>
-    insert(Args &&...args) noexcept(noexcept(take()) &&
-                                    std::is_nothrow_constructible_v<T, Args...>)
+    OptionStorage<T> insert(Args &&...args) noexcept(
+        noexcept(this->swap(std::declval<OptionStorage<T> &>())) &&
+        std::is_nothrow_constructible_v<T, Args...>)
         requires std::is_constructible_v<T, Args...>
     {
         // Exception safety: try construct new object first
@@ -175,25 +187,28 @@ template <class T> struct OptionStorage {
         return new_val;
     }
 
-    void swap(OptionStorage<T> &other) {
+    void swap(OptionStorage<T> &other) noexcept(
+        std::is_trivially_move_constructible_v<T> ||
+        std::is_nothrow_move_constructible_v<T>) {
         if constexpr (std::is_trivially_move_constructible_v<T>) {
             std::swap(this->_storage, other._storage);
             std::swap(this->_initialized, other._initialized);
             return;
-        }
-        if (other._initialized && this->_initialized) {
-            std::swap(this->unwrap_unsafe(), other.unwrap_unsafe());
-            return;
-        }
-        if (other._initialized) {
-            this->construct(std::move(other).unwrap_unsafe());
-            other.reset();
-            return;
-        }
-        if (this->_initialized()) {
-            other.construct(std::move(this->unwrap_unsafe()));
-            this->reset();
-            return;
+        } else {
+            if (other._initialized && this->_initialized) {
+                std::swap(this->unwrap_unsafe(), other.unwrap_unsafe());
+                return;
+            }
+            if (other._initialized) {
+                this->construct(std::move(other).unwrap_unsafe());
+                other.reset();
+                return;
+            }
+            if (this->_initialized) {
+                other.construct(std::move(this->unwrap_unsafe()));
+                this->reset();
+                return;
+            }
         }
         // both None, do nothing
     }
@@ -250,7 +265,7 @@ template <class T> struct OptionStorage {
         }
     }
 
-    // moves and reset other storage!
+    // moves and resets other storage!
     OptionStorage(OptionStorage &&other) noexcept(
         std::is_nothrow_move_constructible_v<T>)
         requires(!std::is_trivially_move_constructible_v<T>)
@@ -266,7 +281,7 @@ template <class T> struct OptionStorage {
         noexcept(this->swap(std::declval<OptionStorage &>())))
         requires(!std::is_trivially_copy_assignable_v<T>)
     {
-        if ((const void *)(this) != std::addressof(other)) {
+        if (this != std::addressof(other)) {
             OptionStorage tmp(other);
             this->swap(tmp);
         }
@@ -274,12 +289,13 @@ template <class T> struct OptionStorage {
         return *this;
     }
 
+    // moves and resets other storage!
     OptionStorage &operator=(OptionStorage &&other) noexcept(
         std::is_nothrow_move_constructible_v<T> &&
         noexcept(this->swap(std::declval<OptionStorage &>())))
-        requires(std::is_trivially_move_constructible_v<T>)
+        requires(!std::is_trivially_move_assignable_v<T>)
     {
-        if ((const void *)(this) != std::addressof(other)) {
+        if (this != std::addressof(other)) {
             OptionStorage tmp(std::move(other));
             this->swap(tmp);
         }
@@ -409,7 +425,7 @@ template <class T> struct Option : private OptionStorage<T> {
 
     Option<T> take() { return Option{Base::take()}; }
     Option<T> insert(auto &&...args) {
-        return Base::insert(std::forward<decltype(args)>(args)...);
+        return Option{Base::insert(std::forward<decltype(args)>(args)...)};
     }
 
     void swap(Option &other) { Base::swap(other); }

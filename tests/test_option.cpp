@@ -2,13 +2,33 @@
 
 #include <iostream>
 #include <string>
+#include <vector>
 
 using better::None;
 using better::Option;
 using better::Ref;
 using better::Some;
 
+
+void test_take_and_insert() {
+    std::cout << "test take and insert";
+    Option<std::vector<int>> opt_v = None;
+    std::cout << opt_v.is_some();
+    opt_v.insert(std::vector{1,2,3,4,5});
+    std::cout << opt_v.is_some();
+    auto opt_v2 = std::move(opt_v);
+    std::cout << opt_v.is_some();
+    std::cout << opt_v2.is_some();
+    auto opt_v3 = opt_v2.take();
+    opt_v3.as_ref().map([](auto v_ref) { v_ref->pop_back(); });
+    auto v = std::move(opt_v3).unwrap();
+    std::cout << "\n" << v.size() << "\n";
+}
+
+
 int main() {
+
+    test_take_and_insert();
 
     Option<std::string> opt = {Some, "hello world"};
 
