@@ -77,11 +77,13 @@ template <class T> struct Ref final {
     // Add support for implicit to reference conversion
     operator std::add_const_t<T> &() const noexcept { return get(); }
 
-    // Remove any implicit conversions to T that can be introduced by the implicit
-    // conversion to const T&
-    operator std::remove_const_t<T> () const = delete;
-    operator std::remove_const_t<T> () = delete;
-    
+    // Add support to const referene conversion
+    operator Const() const noexcept { return Const{get()}; }
+
+    // Remove any implicit conversions to T that can be introduced by the
+    // implicit conversion to const T&
+    operator std::remove_const_t<T>() const = delete;
+    operator std::remove_const_t<T>() = delete;
 
     template <class... Args>
     decltype(auto) operator()(Args &&...args) noexcept(
@@ -328,6 +330,22 @@ template <class T> struct OptionStorage {
         reset();
     }
 
+    OptionStorage<Ref<T>> as_ref() & {
+        if (this->is_some()) {
+            return {Some, Ref{this->unwrap_unsafe()}};
+        } else {
+            return {None};
+        }
+    }
+
+    OptionStorage<Ref<const T>> as_ref() const & {
+        if (this->is_some()) {
+            return {Some, Ref{this->unwrap_unsafe()}};
+        } else {
+            return {None};
+        }
+    }
+
   private:
     OptionStorage() noexcept = default;
 
@@ -386,6 +404,9 @@ template <> struct OptionStorage<Void> {
 
     ~OptionStorage() = default;
 
+    // You cannot take reference to the void
+    void as_ref() const = delete;
+
   private:
     explicit OptionStorage(bool initialized) noexcept : _is_some{initialized} {}
 
@@ -394,12 +415,12 @@ template <> struct OptionStorage<Void> {
 
 template <class T> struct OptionStorage<Ref<T>> {
 
-    bool is_some() const noexcept { return raw_value != nullptr; }
+    bool is_some() const noexcept { return storage.raw != nullptr; }
 
-    Ref<T> unwrap_unsafe() noexcept { return std::bit_cast<Ref<T>>(raw_value); }
+    Ref<T> unwrap_unsafe() noexcept { return storage.ref; }
 
     Ref<std::add_const_t<T>> unwrap_unsafe() const noexcept {
-        return std::bit_cast<Ref<std::add_const_t<T>>>(raw_value);
+        return storage.ref;
     }
 
     void swap(OptionStorage &other) noexcept {
@@ -407,23 +428,24 @@ template <class T> struct OptionStorage<Ref<T>> {
     }
 
     OptionStorage take() noexcept {
-        return OptionStorage{std::exchange(this->raw_value, nullptr)};
+        return OptionStorage{
+            std::exchange(this->storage, RawStorage{.raw = nullptr})};
     }
 
     OptionStorage insert(Ref<T> ref) noexcept {
-        return OptionStorage{
-            std::exchange(this->raw_value, std::bit_cast<T *>(ref))};
+        return OptionStorage{std::exchange(this->storage, RawStorage{ref})};
     }
 
-    OptionStorage(NoneTag) noexcept : OptionStorage(nullptr) {}
-    OptionStorage(SomeTag, Ref<T> ref) noexcept : OptionStorage(&ref.get()) {}
+    OptionStorage(NoneTag) noexcept
+        : OptionStorage(RawStorage{.raw = nullptr}) {}
+    OptionStorage(SomeTag, Ref<T> ref) noexcept
+        : OptionStorage(RawStorage{ref}) {}
 
     // Explicitly delete constructors from Raw references
     // Clients must explicitly Use Ref to avoid confusion
     // and to not introduce dangling references
-    OptionStorage(SomeTag, T&) = delete; 
-    OptionStorage(SomeTag, T&&) = delete; 
-    
+    OptionStorage(SomeTag, T &) = delete;
+    OptionStorage(SomeTag, T &&) = delete;
 
     OptionStorage(const OptionStorage &) = default;
     OptionStorage(OptionStorage &&other) noexcept
@@ -438,13 +460,35 @@ template <class T> struct OptionStorage<Ref<T>> {
 
     ~OptionStorage() = default;
 
-  private:
-    explicit OptionStorage(T *raw) noexcept : raw_value{raw} {}
+    // yes, we can take reference to the reference!
+    OptionStorage<Ref<Ref<T>>> as_ref() & noexcept {
+        if (is_some()) {
+            return {Some, Ref<Ref<T>>{storage.ref}};
+        } else {
+            return {None};
+        }
+    }
 
-    T *raw_value;
+    // yes, we can take reference to the reference!
+    OptionStorage<Ref<const Ref<T>>> as_ref() const & noexcept {
+        if (is_some()) {
+            return {Some, Ref{storage.ref}};
+        } else {
+            return {None};
+        }
+    }
+
+  private:
+    union RawStorage {
+        Ref<T> ref;
+        T *raw;
+    } storage;
+
+    explicit OptionStorage(RawStorage raw) noexcept : storage{raw} {}
 };
 
 template <class T> struct Option : private OptionStorage<T> {
+    static_assert(!std::is_const_v<T>, "const cvalified types are not allowed");
     static_assert(!std::is_same_v<T, void>,
                   "built-in void type cannot be supported as a type parameter. "
                   "Use better::Void");
@@ -454,14 +498,20 @@ template <class T> struct Option : private OptionStorage<T> {
 
   private:
     using Base = OptionStorage<T>;
+    template <typename U> friend struct Option;
 
   public:
+    // using Base::Base;
     using Base::is_some;
+
     bool is_none() const noexcept { return !this->is_some(); }
 
-    explicit operator bool() const noexcept {
-        return is_some();
-    }
+    explicit operator bool() const noexcept { return is_some(); }
+
+    Option(NoneTag none) : Base(none) {}
+    template <class... Args>
+    Option(SomeTag some, Args &&...args)
+        : Base(some, std::forward<Args>(args)...) {}
 
     ~Option() = default;
     Option(const Option &) = default;
@@ -483,6 +533,12 @@ template <class T> struct Option : private OptionStorage<T> {
         }
     }
 
+    T unwrap() const
+        requires std::is_trivially_copyable_v<T>
+    {
+        return Option(*this).unwrap();
+    }
+
     T unwrap_or_default() &&
         requires std::is_default_constructible_v<T>
     {
@@ -491,6 +547,13 @@ template <class T> struct Option : private OptionStorage<T> {
         } else {
             return T{};
         }
+    }
+
+    T unwrap_or_default() const
+        requires std::is_default_constructible_v<T> &&
+                 std::is_trivially_copyable_v<T>
+    {
+        return Option(*this).unwrap_or_default();
     }
 
     template <class U>
@@ -504,6 +567,14 @@ template <class T> struct Option : private OptionStorage<T> {
         }
     }
 
+    template <class U>
+    T unwrap_or(U &&default_val) const
+        requires std::is_constructible_v<T, U &&> &&
+                 std::is_trivially_copyable_v<T>
+    {
+        return Option(*this).unwrap_or(std::forward<U>(default_val));
+    }
+
     template <class F>
     T unwrap_or_else(F &&on_none) &&
         requires std::is_invocable_r_v<T, F &&>
@@ -515,49 +586,24 @@ template <class T> struct Option : private OptionStorage<T> {
         }
     }
 
-    Option(NoneTag none) : Base(none) {}
-
-    Option<T> as_ref()
-        requires(IsRef<T>)
+    template <class F>
+    T unwrap_or_else(F &&on_none) &&
+        requires std::is_invocable_r_v<T, F &&> &&
+                 std::is_trivially_copyable_v<T>
     {
-        return *this;
+        return Option(*this).unwrap_or_else(std::forward<F>(on_none));
     }
 
-    auto as_ref() const
-        requires(IsRef<T>)
-    {
-        // propagate const
-        // we cannot do bit_cast here, because our Move constructor is not
-        // trivial (weird C++ trivial_copiable rules) but for Ref<T> we know the
-        // implemtnation and layout and it is safe to do memcopy
-        using ConstRef = T::Const;
-        Option<ConstRef> as_const{None};
-        static_assert(sizeof(*this) == sizeof(Option<ConstRef>));
-        memcpy(&as_const, this, sizeof(as_const));
-        return as_const;
-    }
-
-    Option<Ref<T>> as_ref() &
-        requires(!IsRef<T>)
-    {
+    Option<Ref<T>> as_ref() & {
         static_assert(!std::is_same_v<T, Void>,
                       "You cannot take reference to the Void. Sorry");
-        if (is_some()) {
-            return Option<Ref<T>>{Some, Ref(this->unwrap_unsafe())};
-        } else {
-            return None;
-        }
+        return Option<Ref<T>>{Base::as_ref()};
     }
 
-    Option<Ref<const T>> as_ref() const &
-        requires(!IsRef<T>)
-    {
-        if (is_some()) {
-            return Option<Ref<const T>>{
-                Some, Ref(std::as_const(this->unwrap_unsafe()))};
-        } else {
-            return {None};
-        }
+    Option<Ref<const T>> as_ref() const & {
+        static_assert(!std::is_same_v<T, Void>,
+                      "You cannot take reference to the Void. Sorry");
+        return Option<Ref<const T>>{Base::as_ref()};
     }
 
     template <class F>
@@ -599,6 +645,12 @@ template <class T> struct Option : private OptionStorage<T> {
     }
 
     template <class F>
+        requires IsInvocableWith<F, T> && std::is_trivially_copyable_v<T>
+    auto map(F &&f) const {
+        return Option(*this).map(std::forward<F>(f));
+    }
+
+    template <class F>
     auto and_then(F &&f) &&
         requires IsInvocableWith<F, T> &&
                  std::is_constructible_v<
@@ -615,6 +667,17 @@ template <class T> struct Option : private OptionStorage<T> {
     }
 
     template <class F>
+    auto and_then(F &&f) const
+        requires IsInvocableWith<F, T> &&
+                 std::is_constructible_v<
+                     decltype(invoke_with(std::forward(f), std::declval<T>())),
+                     NoneTag> &&
+                 std::is_trivially_copyable_v<T>
+    {
+        return Option(*this).and_then(std::forward<F>(f));
+    }
+
+    template <class F>
         requires std::is_invocable_r_v<Option<T>, F>
     Option<T> or_else(F &&f) && {
         if (is_some()) {
@@ -624,9 +687,14 @@ template <class T> struct Option : private OptionStorage<T> {
         }
     }
 
-  private:
-    using Base::Base;
+    template <class F>
+        requires std::is_invocable_r_v<Option<T>, F> &&
+                 std::is_trivially_copyable_v<T>
+    Option<T> or_else(F &&f) const {
+        return Option(*this).or_else(std::forward<F>(f));
+    }
 
+  private:
     explicit Option(Base &&base) noexcept(
         std::is_nothrow_move_constructible_v<Base>)
         : Base{std::move(base)} {}

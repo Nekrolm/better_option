@@ -55,5 +55,21 @@ int main() {
         .map([&]() -> std::string & { return world; })
         .map([](auto ref) { std::cout << "got ref: " << *ref << "\n"; });
 
+
+    std::string hello = "hello";
+
+    Option<Ref<std::string>> opt_ref = { Some, Ref {world} };
+
+    // we can take reference to reference!
+    // and update reference
+    opt_ref.as_ref().map([&](Ref<std::string>& r){ r = Ref{hello}; });
+
+    // mutate hello 
+    hello = "HI";
+
+    opt_ref.map([](const std::string& s) {
+        std::cout << "Mutated ref: " << s << "\n";
+    });
+
     return 0;
 }
