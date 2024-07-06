@@ -24,6 +24,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 namespace better {
 
+// This specialization covers all empty trivial types, including
+// better::Void
+
 template <class T>
     requires std::is_trivial_v<T> && std::is_empty_v<T>
 struct OptionStorage<T> : protected T {

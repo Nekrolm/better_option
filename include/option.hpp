@@ -27,7 +27,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "storage/generic.hpp"
 #include "storage/ref.hpp"
-#include "storage/void.hpp"
 #include "storage/empty.hpp"
 
 #include <bit>
