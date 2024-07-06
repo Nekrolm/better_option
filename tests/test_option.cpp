@@ -31,15 +31,15 @@ int main() {
     Option<std::string> opt = {Some, "hello world"};
 
     auto transformed = std::move(opt)
-                           .map([](auto &&str) { return str.length(); })
+                           .map([](auto&& str) { return str.length(); })
                            .map([](size_t len) { return std::to_string(len); });
 
     // can map to void!
     auto result = transformed.as_ref().map(
-        [](const auto &str) { std::cout << *str << "\n"; });
+        [](const auto& str) { std::cout << *str << "\n"; });
 
     // we have niche optimization for references
-    static_assert(sizeof(transformed.as_ref()) == sizeof(void *));
+    static_assert(sizeof(transformed.as_ref()) == sizeof(void*));
 
     std::cout << "transformed is stil some: " << transformed.is_some() << "\n";
 
@@ -54,7 +54,7 @@ int main() {
 
     // can also map from void!
     std::move(result)
-        .map([&]() -> std::string & { return world; })
+        .map([&]() -> std::string& { return world; })
         .map([](auto ref) { std::cout << "got ref: " << *ref << "\n"; });
 
     std::string hello = "hello";
@@ -63,23 +63,22 @@ int main() {
 
     // we can take reference to reference!
     // and update reference
-    opt_ref.as_ref().map([&](Ref<std::string> &r) { r = Ref{hello}; });
+    opt_ref.as_ref().map([&](Ref<std::string>& r) { r = Ref{hello}; });
 
     // mutate hello
     hello = "HI";
 
-    opt_ref.map([](const std::string &s) {
+    opt_ref.map([](const std::string& s) {
         std::cout << "Mutated ref: " << s << "\n";
     });
 
-    const auto opt_string = Option { Some, std::string("hello") };
+    const auto opt_string = Option{Some, std::string("hello")};
     const auto const_ref = opt_string.as_ref();
     const auto const_const_ref_ref = const_ref.as_ref();
 
-
     struct Empty {};
 
-    Option<Empty> empty = {None};
+    Option<Empty> empty = None;
     static_assert(sizeof(empty) == sizeof(bool));
 
     return 0;

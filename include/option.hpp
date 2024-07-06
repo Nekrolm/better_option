@@ -25,9 +25,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "tags.hpp"
 #include "void.hpp"
 
+#include "storage/empty.hpp"
 #include "storage/generic.hpp"
 #include "storage/ref.hpp"
-#include "storage/empty.hpp"
 
 #include <bit>
 #include <compare>
@@ -93,6 +93,12 @@ struct Option : private OptionStorage<T> {
     ~Option() = default;
     Option(const Option&) = default;
     Option& operator=(const Option&) = default;
+
+    Option& operator=(NoneTag) {
+        this->take();
+        return *this;
+    }
+
     // Option<
 
     Option<T> take() {
