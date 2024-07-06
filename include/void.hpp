@@ -27,7 +27,7 @@ namespace better {
 // optionals and comstruct a better chain of combinators
 struct Void {
     // void can be created from anything
-    constexpr explicit Void(auto &&...) {}
+    constexpr explicit Void(auto&&...) {}
 };
 
-}
+} // namespace better

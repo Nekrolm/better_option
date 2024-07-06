@@ -39,31 +39,31 @@ template <class T> struct Ref final {
     using Const = Ref<std::add_const_t<T>>;
 
     // Reference is constructible only from l-values
-    explicit Ref(T &x) : _ptr{&x} {}
+    explicit Ref(T& x) : _ptr{&x} {}
     // Rvalues are banned!
-    Ref(T &&) = delete;
+    Ref(T&&) = delete;
 
     // Follow Rule of Zero.
     // There is nothing special for Reference type
 
-    T &get() noexcept { return *_ptr; }
+    T& get() noexcept { return *_ptr; }
     // Propagate const for safety!
-    std::add_const_t<T> &get() const noexcept { return std::as_const(*_ptr); }
+    std::add_const_t<T>& get() const noexcept { return std::as_const(*_ptr); }
 
     decltype(auto) operator*() noexcept { return get(); }
 
     // I don't have C++23 compiler with deducing this :(
     decltype(auto) operator*() const noexcept { return get(); }
 
-    T *operator->() noexcept { return _ptr; }
+    T* operator->() noexcept { return _ptr; }
 
     // Propagate const for safety!
-    std::add_const_t<T> *operator->() const noexcept { return _ptr; }
+    std::add_const_t<T>* operator->() const noexcept { return _ptr; }
 
     // Add support for implicit to reference conversion
-    operator T &() noexcept { return get(); }
+    operator T&() noexcept { return get(); }
     // Add support for implicit to reference conversion
-    operator std::add_const_t<T> &() const noexcept { return get(); }
+    operator std::add_const_t<T>&() const noexcept { return get(); }
 
     // Add support to const referene conversion
     operator Const() const noexcept { return Const{get()}; }
@@ -74,41 +74,41 @@ template <class T> struct Ref final {
     operator std::remove_const_t<T>() = delete;
 
     template <class... Args>
-    decltype(auto) operator()(Args &&...args) noexcept(
+    decltype(auto) operator()(Args&&... args) noexcept(
         noexcept(std::invoke(get(), std::forward<Args>(args)...)))
-        requires std::is_invocable_v<T &, Args...>
+        requires std::is_invocable_v<T&, Args...>
     {
         return std::invoke(get(), std::forward<Args>(args)...);
     }
 
     template <class... Args>
-    decltype(auto) operator()(Args &&...args) const
+    decltype(auto) operator()(Args&&... args) const
         noexcept(noexcept(std::invoke(get(), std::forward<Args>(args)...)))
-        requires std::is_invocable_v<T &, Args...>
+        requires std::is_invocable_v<T&, Args...>
     {
         return std::invoke(get(), std::forward<Args>(args)...);
     }
 
     decltype(auto) operator()(Void) noexcept(noexcept(std::invoke(get())))
-        requires std::is_invocable_v<T &>
+        requires std::is_invocable_v<T&>
     {
         return std::invoke(get());
     }
     decltype(auto) operator()(Void) const noexcept(noexcept(std::invoke(get())))
-        requires std::is_invocable_v<std::add_const_t<T> &>
+        requires std::is_invocable_v<std::add_const_t<T>&>
     {
         return std::invoke(get());
     }
 
   private:
-    T *_ptr;
+    T* _ptr;
 };
 
 // Add deduction guides for Reference, for better syntax
-template <class T> Ref(T &) -> Ref<T>;
-template <class T> Ref(const T &) -> Ref<const T>;
+template <class T> Ref(T&) -> Ref<T>;
+template <class T> Ref(const T&) -> Ref<const T>;
 
 template <class T> constexpr bool IsRef = false;
 template <class T> constexpr bool IsRef<Ref<T>> = true;
 
-}
+} // namespace better
