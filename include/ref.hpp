@@ -32,7 +32,8 @@ namespace better {
 // Custom reference type
 // Reference types in C++ are not first class citizens
 // they cannot be changed and cannot be referenced
-template <class T> struct Ref final {
+template <class T>
+struct Ref final {
     static_assert(!std::is_reference_v<T>);
     static_assert(!std::is_same_v<T, void>);
 
@@ -100,15 +101,21 @@ template <class T> struct Ref final {
         return std::invoke(get());
     }
 
+    bool ref_equals(const Ref& other) const { return this->_ptr == other._ptr; }
+
   private:
     T* _ptr;
 };
 
 // Add deduction guides for Reference, for better syntax
-template <class T> Ref(T&) -> Ref<T>;
-template <class T> Ref(const T&) -> Ref<const T>;
+template <class T>
+Ref(T&) -> Ref<T>;
+template <class T>
+Ref(const T&) -> Ref<const T>;
 
-template <class T> constexpr bool IsRef = false;
-template <class T> constexpr bool IsRef<Ref<T>> = true;
+template <class T>
+constexpr bool IsRef = false;
+template <class T>
+constexpr bool IsRef<Ref<T>> = true;
 
 } // namespace better

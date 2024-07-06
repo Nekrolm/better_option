@@ -72,5 +72,15 @@ int main() {
         std::cout << "Mutated ref: " << s << "\n";
     });
 
+    const auto opt_string = Option { Some, std::string("hello") };
+    const auto const_ref = opt_string.as_ref();
+    const auto const_const_ref_ref = const_ref.as_ref();
+
+
+    struct Empty {};
+
+    Option<Empty> empty = {None};
+    static_assert(sizeof(empty) == sizeof(bool));
+
     return 0;
 }

@@ -18,20 +18,16 @@ COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
-
 #pragma once
 
-#include <compare>
-
 namespace better {
-// C++ void is incomplete type and cannot be normally used for values
-// We will use special Void type. It allows us call void functions on
-// optionals and comstruct a better chain of combinators
-struct Void {
-    // void can be created from anything
-    constexpr explicit Void(auto&&...) {}
 
-    auto operator<=>(const Void&) const = default;
-};
+/// Tag to create empty Option
+struct NoneTag {};
+/// Tag to create non empty Option
+struct SomeTag {};
 
-} // namespace better
+constexpr inline NoneTag None;
+constexpr inline SomeTag Some;
+
+}

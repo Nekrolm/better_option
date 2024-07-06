@@ -21,7 +21,17 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
+#include "ref.hpp"
+#include "tags.hpp"
+#include "void.hpp"
+
+#include "storage/generic.hpp"
+#include "storage/ref.hpp"
+#include "storage/void.hpp"
+#include "storage/empty.hpp"
+
 #include <bit>
+#include <compare>
 #include <cstddef>
 #include <cstring>
 #include <functional>
@@ -30,16 +40,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <stdexcept>
 
-#include "ref.hpp"
-#include "void.hpp"
-
 namespace better {
-
-struct NoneTag {};
-struct SomeTag {};
-
-constexpr inline NoneTag None;
-constexpr inline SomeTag Some;
 
 template <class F, class... Args>
 constexpr bool IsInvocableWith = std::is_invocable_v<F, Args...>;
@@ -61,269 +62,9 @@ decltype(auto) invoke_with(F&& f, Void)
     return std::invoke(std::forward<F>(f));
 }
 
-// for easy swap, use extra struct
-template <class T> struct RawStorage {
-    alignas(T) std::byte data[sizeof(T)];
+template <class T>
+struct Option : private OptionStorage<T> {
 
-    char* get_bytes() noexcept { return reinterpret_cast<char*>(data); }
-
-    T* get_raw() noexcept { return std::launder(reinterpret_cast<T*>(data)); }
-
-    const T* get_raw() const noexcept {
-        return std::launder(reinterpret_cast<const T*>(data));
-    }
-};
-
-// Mandatory interface for OptionStorage:
-// swap(Other)
-// is_some()
-// unwrap_unsafe()
-//
-// and two constructors:
-// OptionStorage(NoneTag)
-// OptionStorage(SomeTag, ...)
-
-// Specializations must implement them all
-template <class T> struct OptionStorage {
-
-    bool is_some() const noexcept { return _initialized; }
-
-    void swap(OptionStorage<T>& other) noexcept(
-        std::is_trivially_move_constructible_v<T> ||
-        std::is_nothrow_move_constructible_v<T>) {
-        if constexpr (std::is_trivially_move_constructible_v<T>) {
-            std::swap(this->_storage, other._storage);
-            std::swap(this->_initialized, other._initialized);
-            return;
-        } else {
-            if (other._initialized && this->_initialized) {
-                std::swap(this->unwrap_unsafe(), other.unwrap_unsafe());
-                return;
-            }
-            if (other._initialized) {
-                this->construct(std::move(other).unwrap_unsafe());
-                other.reset();
-                return;
-            }
-            if (this->_initialized) {
-                other.construct(std::move(this->unwrap_unsafe()));
-                this->reset();
-                return;
-            }
-        }
-        // both None, do nothing
-    }
-
-    T& unwrap_unsafe() & noexcept { return *_storage.get_raw(); }
-    T&& unwrap_unsafe() && noexcept { return std::move(*_storage.get_raw()); }
-    const T& unwrap_unsafe() const& noexcept { return *_storage.get_raw(); }
-
-    OptionStorage(NoneTag) noexcept : OptionStorage() {}
-
-    template <class... Args>
-    OptionStorage(SomeTag, Args&&... args) noexcept(
-        std::is_nothrow_constructible_v<T, Args...>)
-        requires std::is_constructible_v<T, Args...>
-    {
-        this->construct(std::forward<Args>(args)...);
-    }
-
-    OptionStorage(const OptionStorage&) noexcept
-        requires(std::is_trivially_copy_constructible_v<T>)
-    = default;
-    OptionStorage(OptionStorage&& other) noexcept
-        requires(std::is_trivially_move_constructible_v<T>)
-    {
-        this->_storage = other._storage;
-        this->_initialized = other._initialized;
-        other.reset();
-    }
-
-    OptionStorage& operator=(const OptionStorage&) noexcept
-        requires(std::is_trivially_copy_assignable_v<T>)
-    = default;
-    OptionStorage& operator=(OptionStorage&& other) noexcept
-        requires(std::is_trivially_move_assignable_v<T>)
-    {
-        if (this != std::addressof(other)) {
-            this->_storage = other.storage;
-            this->_initialized = other.initialized;
-            other.reset();
-        }
-        return *this;
-    }
-
-    ~OptionStorage()
-        requires(std::is_trivially_destructible_v<T>)
-    = default;
-
-    OptionStorage(const OptionStorage& other) noexcept(
-        std::is_nothrow_copy_constructible_v<T>)
-        requires(!std::is_trivially_copy_constructible_v<T>)
-    {
-        if (other.is_some()) {
-            this->construct(other.unwrap_unsafe());
-        }
-    }
-
-    // moves and resets other storage!
-    OptionStorage(OptionStorage&& other) noexcept(
-        std::is_nothrow_move_constructible_v<T>)
-        requires(!std::is_trivially_move_constructible_v<T>)
-    {
-        if (other.is_some()) {
-            this->construct(std::move(other).unwrap_unsafe());
-            other.reset();
-        }
-    }
-
-    OptionStorage& operator=(const OptionStorage& other) noexcept(
-        std::is_nothrow_copy_constructible_v<T> &&
-        noexcept(this->swap(std::declval<OptionStorage&>())))
-        requires(!std::is_trivially_copy_assignable_v<T>)
-    {
-        if (this != std::addressof(other)) {
-            OptionStorage tmp(other);
-            this->swap(tmp);
-        }
-
-        return *this;
-    }
-
-    // moves and resets other storage!
-    OptionStorage& operator=(OptionStorage&& other) noexcept(
-        std::is_nothrow_move_constructible_v<T> &&
-        noexcept(this->swap(std::declval<OptionStorage&>())))
-        requires(!std::is_trivially_move_assignable_v<T>)
-    {
-        if (this != std::addressof(other)) {
-            OptionStorage tmp(std::move(other));
-            this->swap(tmp);
-        }
-
-        return *this;
-    }
-
-    ~OptionStorage() noexcept(std::is_nothrow_destructible_v<T>)
-        requires(!std::is_trivially_destructible_v<T>)
-    {
-        reset();
-    }
-
-  private:
-    OptionStorage() noexcept = default;
-
-    template <class... Args>
-    void construct(Args&&... args) noexcept(
-        std::is_nothrow_constructible_v<T, Args...>)
-        requires std::is_constructible_v<T, Args...>
-    {
-        new (this->_storage.get_bytes()) T(std::forward<Args>(args)...);
-        this->_initialized = true;
-    }
-
-    void reset() noexcept(std::is_nothrow_destructible_v<T>) {
-        if constexpr (!std::is_trivially_destructible_v<T>) {
-            if (_initialized) {
-                _storage.get_raw()->~T();
-            }
-        }
-        _initialized = false;
-    }
-
-    RawStorage<T> _storage;
-    bool _initialized = false;
-};
-
-// Void specialization this one is easy
-template <> struct OptionStorage<Void> : protected Void {
-
-    const Void& unwrap_unsafe() const& { return *this; }
-    Void& unwrap_unsafe() & { return *this; }
-    Void&& unwrap_unsafe() && { return std::move(*this); }
-
-    bool is_some() const noexcept { return _is_some; }
-    void swap(OptionStorage& other) noexcept {
-        std::swap(this->_is_some, other._is_some);
-    }
-
-    OptionStorage(NoneTag) noexcept : OptionStorage(false) {}
-    OptionStorage(SomeTag, auto&&...) noexcept : OptionStorage(true) {}
-
-    OptionStorage(const OptionStorage&) = default;
-    OptionStorage(OptionStorage&& other) noexcept
-        : OptionStorage(std::exchange(other._is_some, false)) {}
-
-    OptionStorage& operator=(const OptionStorage&) = default;
-    OptionStorage& operator=(OptionStorage&& other) noexcept {
-        OptionStorage tmp{std::move(other)};
-        this->swap(tmp);
-        return *this;
-    }
-
-    ~OptionStorage() = default;
-
-  private:
-    explicit OptionStorage(bool initialized) noexcept : _is_some{initialized} {}
-
-    bool _is_some = false;
-};
-
-template <class T> struct OptionStorage<Ref<T>> {
-
-    bool is_some() const noexcept { return storage.raw != nullptr; }
-
-    Ref<T>& unwrap_unsafe() & noexcept { return storage.ref; }
-
-    const Ref<typename Ref<T>::Const>& unwrap_unsafe() const& noexcept {
-        return storage.const_ref;
-    }
-
-    Ref<T>&& unwrap_unsafe() && noexcept {
-        return std::move(this->storage.ref);
-    }
-
-    void swap(OptionStorage& other) noexcept {
-        std::swap(this->storage, other.storage);
-    }
-
-    OptionStorage(NoneTag) noexcept
-        : OptionStorage(RawStorage{.raw = nullptr}) {}
-    OptionStorage(SomeTag, Ref<T> ref) noexcept
-        : OptionStorage(RawStorage{ref}) {}
-
-    // Explicitly delete constructors from Raw references
-    // Clients must explicitly Use Ref to avoid confusion
-    // and to not introduce dangling references
-    OptionStorage(SomeTag, T&) = delete;
-    OptionStorage(SomeTag, T&&) = delete;
-
-    OptionStorage(const OptionStorage&) = default;
-    OptionStorage(OptionStorage&& other) noexcept
-        : OptionStorage(other.take()) {}
-
-    OptionStorage& operator=(const OptionStorage&) = default;
-    OptionStorage& operator=(OptionStorage&& other) noexcept {
-        OptionStorage tmp{std::move(other)};
-        this->swap(tmp);
-        return *this;
-    }
-
-    ~OptionStorage() = default;
-
-  private:
-    union RawStorage {
-        Ref<T> ref;
-        Ref<typename Ref<T>::Const> const_ref;
-        T* raw;
-    } storage;
-
-    explicit OptionStorage(RawStorage raw) noexcept : storage{raw} {
-        static_assert(sizeof(RawStorage) == sizeof(T*));
-    }
-};
-
-template <class T> struct Option : private OptionStorage<T> {
     static_assert(!std::is_const_v<T>, "const cvalified types are not allowed");
     static_assert(!std::is_same_v<T, void>,
                   "built-in void type cannot be supported as a type parameter. "
@@ -331,12 +72,14 @@ template <class T> struct Option : private OptionStorage<T> {
     static_assert(!std::is_reference_v<T>,
                   "built-in reference types cannot be supported as a type "
                   "parameter. Use better::Ref");
+    static_assert(OptionStorageImpl<OptionStorage<T>, T>,
+                  "OptionalStorage specialization doesn't satisfy "
+                  "OptionalStorage interface");
 
   private:
     using Base = OptionStorage<T>;
 
   public:
-    // using Base::Base;
     using Base::is_some;
 
     bool is_none() const noexcept { return !this->is_some(); }
@@ -519,12 +262,35 @@ template <class T> struct Option : private OptionStorage<T> {
         return Option(*this).or_else(std::forward<F>(f));
     }
 
+    auto operator<=>(const Option& other) const
+        requires std::three_way_comparable<T>
+    {
+        using Ordering = std::compare_three_way_result_t<T>;
+        const bool left_is_some = this->is_some();
+        const bool right_is_some = this->is_some();
+        if (left_is_some < right_is_some) {
+            return Ordering::less;
+        }
+        if (left_is_some > right_is_some) {
+            return Ordering::greater;
+        }
+        if (!left_is_some) {
+            return Ordering::equivalent;
+        } else {
+            // both are Some
+            return this->unwrap_unsafe() <=> other.unwrap_unsafe();
+        }
+    }
+
   private:
     explicit Option(Base&& base) noexcept(
         std::is_nothrow_move_constructible_v<Base>)
         : Base{std::move(base)} {}
 };
 
-template <class T> Option(SomeTag, T) -> Option<T>;
+template <class T>
+Option(SomeTag, T) -> Option<T>;
+
+static_assert(sizeof(Option<Void>) == sizeof(bool));
 
 } // namespace better
