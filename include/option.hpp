@@ -44,25 +44,37 @@ namespace better {
 template <class F, class... Args>
 constexpr bool IsInvocableWith = std::is_invocable_v<F, Args...>;
 
-template <class F>
-constexpr bool IsInvocableWith<F, Void> = std::is_invocable_v<F>;
+template <class F, class V>
+    requires std::is_same_v<Void, std::decay_t<V>>
+constexpr bool IsInvocableWith<F, V> = std::is_invocable_v<F>;
 
 template <class F, class... Args>
 decltype(auto) invoke_with(F&& f, Args&&... args)
     requires std::is_invocable_v<F, Args...>
 {
-    return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
+    using R = std::invoke_result_t<F, Args...>;
+    if constexpr (std::is_same_v<R, void>) {
+        std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
+        return Void{};
+    } else {
+        return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
+    }
 }
-
 template <class F>
 decltype(auto) invoke_with(F&& f, Void)
     requires std::is_invocable_v<F>
 {
-    return std::invoke(std::forward<F>(f));
+    using R = std::invoke_result_t<F>;
+    if constexpr (std::is_same_v<R, void>) {
+        std::invoke(std::forward<F>(f));
+        return Void{};
+    } else {
+        return std::invoke(std::forward<F>(f));
+    }
 }
 
 template <class T>
-struct Option : private OptionStorage<T> {
+struct Option : protected OptionStorage<T> {
 
     static_assert(!std::is_const_v<T>, "const cvalified types are not allowed");
     static_assert(!std::is_same_v<T, void>,
@@ -78,6 +90,9 @@ struct Option : private OptionStorage<T> {
   private:
     using Base = OptionStorage<T>;
 
+  protected:
+    using Base::unwrap_unsafe;
+
   public:
     using Base::is_some;
 
@@ -90,16 +105,10 @@ struct Option : private OptionStorage<T> {
     Option(SomeTag some, Args&&... args)
         : Base(some, std::forward<Args>(args)...) {}
 
-    ~Option() = default;
-    Option(const Option&) = default;
-    Option& operator=(const Option&) = default;
-
     Option& operator=(NoneTag) {
         this->take();
         return *this;
     }
-
-    // Option<
 
     Option<T> take() {
         Option<T> tmp{None};
@@ -114,63 +123,77 @@ struct Option : private OptionStorage<T> {
 
     void swap(Option& other) { Base::swap(other); }
 
-    T unwrap() && {
+    const T& unwrap() const& {
         if (is_some()) {
-            return take().unwrap_unsafe();
+            return this->unwrap_unsafe();
         } else {
             throw std::runtime_error("attempt to unwrap None");
         }
     }
 
-    T unwrap() const
-        requires std::is_trivially_copyable_v<T>
-    {
-        return Option(*this).unwrap();
+    T& unwrap() & {
+        if (is_some()) {
+            return this->unwrap_unsafe();
+        } else {
+            throw std::runtime_error("attempt to unwrap None");
+        }
+    }
+
+    T&& unwrap() && {
+        if (is_some()) {
+            return std::move(*this).unwrap_unsafe();
+        } else {
+            throw std::runtime_error("attempt to unwrap None");
+        }
     }
 
     T unwrap_or_default() &&
-        requires std::is_default_constructible_v<T>
+        requires std::is_default_constructible_v<T> &&
+                 std::is_move_constructible_v<T>
     {
-        return is_some() ? take().unwrap_unsafe() : T{};
+        return is_some() ? std::move(*this).unwrap_unsafe() : T{};
     }
 
-    T unwrap_or_default() const
+    T unwrap_or_default() const&
         requires std::is_default_constructible_v<T> &&
-                 std::is_trivially_copyable_v<T>
+                 std::is_copy_constructible_v<T>
     {
-        return Option(*this).unwrap_or_default();
+        return is_some() ? this->unwrap_unsafe() : T{};
     }
 
     template <class U>
     T unwrap_or(U&& default_val) &&
-        requires std::is_constructible_v<T, U&&>
+        requires std::is_constructible_v<T, U&&> &&
+                 std::is_move_constructible_v<T>
     {
-        return is_some() ? take().unwrap_unsafe()
+        return is_some() ? std::move(*this).unwrap_unsafe()
                          : T{std::forward<U>(default_val)};
     }
 
     template <class U>
-    T unwrap_or(U&& default_val) const
+    T unwrap_or(U&& default_val) const&
         requires std::is_constructible_v<T, U&&> &&
-                 std::is_trivially_copyable_v<T>
+                 std::is_copy_constructible_v<T>
     {
-        return Option(*this).unwrap_or(std::forward<U>(default_val));
+        return is_some() ? this->unwrap_unsafe()
+                         : T{std::forward<U>(default_val)};
     }
 
     template <class F>
     T unwrap_or_else(F&& on_none) &&
         requires std::is_invocable_r_v<T, F&&>
     {
-        return is_some() ? take().unwrap_unsafe()
+        return is_some() ? std::move(*this).unwrap_unsafe()
                          : std::invoke(std::forward<F>(on_none));
     }
 
     template <class F>
-    T unwrap_or_else(F&& on_none) &&
+    T unwrap_or_else(F&& on_none) const&
         requires std::is_invocable_r_v<T, F&&> &&
-                 std::is_trivially_copyable_v<T>
+                 std::is_copy_constructible_v<T>
     {
-        return Option(*this).unwrap_or_else(std::forward<F>(on_none));
+        return is_some() ? this->unwrap_unsafe()
+                         : std::invoke(std::forward<F>(on_none));
     }
 
     auto as_ref() & {
@@ -198,35 +221,44 @@ struct Option : private OptionStorage<T> {
     auto map(F&& f) && {
         using ResultT =
             decltype(invoke_with(std::forward<F>(f), std::declval<T>()));
-        if constexpr (std::is_same_v<ResultT, void>) {
-            if (is_some()) {
-                invoke_with(std::forward<F>(f), this->take().unwrap_unsafe());
-                return Option<Void>{Some};
-            } else {
-                return Option<Void>{None};
-            }
-        } else if constexpr (std::is_reference_v<ResultT>) {
+        if constexpr (std::is_reference_v<ResultT>) {
             static_assert(std::is_lvalue_reference_v<ResultT>,
                           "better::Option doesn't support rvalue references");
             using OptT = Option<Ref<std::remove_reference_t<ResultT>>>;
             return is_some()
-                       ? OptT{Some,
-                              Ref(invoke_with(std::forward<F>(f),
-                                              this->take().unwrap_unsafe()))}
+                       ? OptT{Some, Ref(invoke_with(
+                                        std::forward<F>(f),
+                                        std::move(*this).unwrap_unsafe()))}
                        : OptT{None};
         } else {
             using OptT = Option<ResultT>;
             return is_some()
-                       ? OptT{Some, invoke_with(std::forward<F>(f),
-                                                this->take().unwrap_unsafe())}
+                       ? OptT{Some,
+                              invoke_with(std::forward<F>(f),
+                                          std::move(*this).unwrap_unsafe())}
                        : OptT{None};
         }
     }
 
     template <class F>
-        requires IsInvocableWith<F, T> && std::is_trivially_copyable_v<T>
+        requires IsInvocableWith<F, const T&>
     auto map(F&& f) const {
-        return Option(*this).map(std::forward<F>(f));
+        using ResultT =
+            decltype(invoke_with(std::forward<F>(f), std::declval<const T&>()));
+        if constexpr (std::is_reference_v<ResultT>) {
+            static_assert(std::is_lvalue_reference_v<ResultT>,
+                          "better::Option doesn't support rvalue references");
+            using OptT = Option<Ref<std::remove_reference_t<ResultT>>>;
+            return is_some()
+                       ? OptT{Some, Ref(invoke_with(std::forward<F>(f),
+                                                    this->unwrap_unsafe()))}
+                       : OptT{None};
+        } else {
+            using OptT = Option<ResultT>;
+            return is_some() ? OptT{Some, invoke_with(std::forward<F>(f),
+                                                      this->unwrap_unsafe())}
+                             : OptT{None};
+        }
     }
 
     template <class F>
@@ -238,32 +270,34 @@ struct Option : private OptionStorage<T> {
     {
         using ResultOpt =
             decltype(invoke_with(std::forward(f), std::declval<T>()));
-        return is_some()
-                   ? invoke_with(std::forward(f), this->take().unwrap_unsafe())
-                   : ResultOpt{None};
+        return is_some() ? invoke_with(std::forward(f),
+                                       std::move(*this).unwrap_unsafe())
+                         : ResultOpt{None};
     }
 
     template <class F>
-    auto and_then(F&& f) const
-        requires IsInvocableWith<F, T> &&
+    auto and_then(F&& f) const&
+        requires IsInvocableWith<F, const T&> &&
                  std::is_constructible_v<
-                     decltype(invoke_with(std::forward(f), std::declval<T>())),
-                     NoneTag> &&
-                 std::is_trivially_copyable_v<T>
+                     decltype(invoke_with(std::forward(f),
+                                          std::declval<const T&>())),
+                     NoneTag>
     {
-        return Option(*this).and_then(std::forward<F>(f));
+        using ResultOpt =
+            decltype(invoke_with(std::forward(f), std::declval<T>()));
+        return is_some() ? invoke_with(std::forward(f), this->unwrap_unsafe())
+                         : ResultOpt{None};
     }
 
     template <class F>
         requires std::is_invocable_r_v<Option<T>, F>
     Option<T> or_else(F&& f) && {
-        return is_some() ? this->take() : std::invoke(std::forward<F>(f));
+        return is_some() ? std::move(*this) : std::invoke(std::forward<F>(f));
     }
 
     template <class F>
-        requires std::is_invocable_r_v<Option<T>, F> &&
-                 std::is_trivially_copyable_v<T>
-    Option<T> or_else(F&& f) const {
+        requires std::is_invocable_r_v<Option<T>, F>
+    Option<T> or_else(F&& f) const& {
         return Option(*this).or_else(std::forward<F>(f));
     }
 

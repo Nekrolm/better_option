@@ -46,19 +46,6 @@ struct OptionStorage<T> : protected T {
         std::is_nothrow_constructible_v<T, Args...>)
         : T{std::forward<Args>(args)...}, _is_some{true} {}
 
-    OptionStorage(const OptionStorage&) = default;
-    OptionStorage(OptionStorage&& other) noexcept
-        : _is_some{std::exchange(other._is_some, false)} {}
-
-    OptionStorage& operator=(const OptionStorage&) = default;
-    OptionStorage& operator=(OptionStorage&& other) noexcept {
-        OptionStorage tmp{std::move(other)};
-        this->swap(tmp);
-        return *this;
-    }
-
-    ~OptionStorage() = default;
-
   private:
     bool _is_some = false;
 };

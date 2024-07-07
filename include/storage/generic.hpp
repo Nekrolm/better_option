@@ -53,7 +53,6 @@ concept OptionStorageImpl =
     } && std::is_constructible_v<Storage, NoneTag> &&
     std::is_constructible_v<Storage, SomeTag, T>;
 
-
 template <class T>
 struct OptionStorage {
   public:
@@ -99,33 +98,9 @@ struct OptionStorage {
         this->construct(std::forward<Args>(args)...);
     }
 
+    // -------- Copy constructors -------
     OptionStorage(const OptionStorage&) noexcept
         requires(std::is_trivially_copy_constructible_v<T>)
-    = default;
-    OptionStorage(OptionStorage&& other) noexcept
-        requires(std::is_trivially_move_constructible_v<T>)
-    {
-        this->_storage = other._storage;
-        this->_initialized = other._initialized;
-        other.reset();
-    }
-
-    OptionStorage& operator=(const OptionStorage&) noexcept
-        requires(std::is_trivially_copy_assignable_v<T>)
-    = default;
-    OptionStorage& operator=(OptionStorage&& other) noexcept
-        requires(std::is_trivially_move_assignable_v<T>)
-    {
-        if (this != std::addressof(other)) {
-            this->_storage = other.storage;
-            this->_initialized = other.initialized;
-            other.reset();
-        }
-        return *this;
-    }
-
-    ~OptionStorage()
-        requires(std::is_trivially_destructible_v<T>)
     = default;
 
     OptionStorage(const OptionStorage& other) noexcept(
@@ -137,6 +112,12 @@ struct OptionStorage {
         }
     }
 
+    // -------- Move constructors -------
+
+    OptionStorage(OptionStorage&& other) noexcept
+        requires(std::is_trivially_move_constructible_v<T>)
+    = default;
+
     // moves and resets other storage!
     OptionStorage(OptionStorage&& other) noexcept(
         std::is_nothrow_move_constructible_v<T>)
@@ -144,22 +125,32 @@ struct OptionStorage {
     {
         if (other.is_some()) {
             this->construct(std::move(other).unwrap_unsafe());
-            other.reset();
         }
     }
+
+    // -------- Copy assignment -------
+
+    OptionStorage& operator=(const OptionStorage&) noexcept
+        requires(std::is_trivially_copy_assignable_v<T>)
+    = default;
 
     OptionStorage& operator=(const OptionStorage& other) noexcept(
         std::is_nothrow_copy_constructible_v<T> &&
         noexcept(this->swap(std::declval<OptionStorage&>())))
         requires(!std::is_trivially_copy_assignable_v<T>)
     {
-        if (this != std::addressof(other)) {
-            OptionStorage tmp(other);
-            this->swap(tmp);
-        }
+
+        OptionStorage tmp(other);
+        this->swap(tmp);
 
         return *this;
     }
+
+    // -------- Move assignment -------
+
+    OptionStorage& operator=(OptionStorage&& other) noexcept
+        requires(std::is_trivially_move_assignable_v<T>)
+    = default;
 
     // moves and resets other storage!
     OptionStorage& operator=(OptionStorage&& other) noexcept(
@@ -167,20 +158,23 @@ struct OptionStorage {
         noexcept(this->swap(std::declval<OptionStorage&>())))
         requires(!std::is_trivially_move_assignable_v<T>)
     {
-        if (this != std::addressof(other)) {
-            OptionStorage tmp(std::move(other));
-            this->swap(tmp);
-        }
+        OptionStorage tmp(std::move(other));
+        this->swap(tmp);
 
         return *this;
     }
+
+    // ------ Destructors ------
+    ~OptionStorage()
+        requires(std::is_trivially_destructible_v<T>)
+    = default;
 
     ~OptionStorage() noexcept(std::is_nothrow_destructible_v<T>)
         requires(!std::is_trivially_destructible_v<T>)
     {
         reset();
     }
-
+    // -----------------------
   private:
     OptionStorage() noexcept = default;
 

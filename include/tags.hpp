@@ -27,7 +27,15 @@ struct NoneTag {};
 /// Tag to create non empty Option
 struct SomeTag {};
 
+// Tag to create Ok Result
+struct OkTag {};
+// Tag to create Err Result;
+struct ErrTag {};
+
 constexpr inline NoneTag None;
 constexpr inline SomeTag Some;
 
-}
+constexpr inline OkTag Ok;
+constexpr inline ErrTag Err;
+
+} // namespace better

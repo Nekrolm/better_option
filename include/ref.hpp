@@ -67,7 +67,11 @@ struct Ref final {
     operator std::add_const_t<T>&() const noexcept { return get(); }
 
     // Add support to const referene conversion
-    operator Const() const noexcept { return Const{get()}; }
+    operator Const() noexcept { return Const{get()}; }
+
+    operator const Const&() const& noexcept {
+        return reinterpret_cast<const Const&>(*this);
+    }
 
     // Remove any implicit conversions to T that can be introduced by the
     // implicit conversion to const T&
@@ -117,5 +121,19 @@ template <class T>
 constexpr bool IsRef = false;
 template <class T>
 constexpr bool IsRef<Ref<T>> = true;
+
+template <class T>
+auto make_const_ref_helper(const T& e) {
+    if constexpr (IsRef<T>) {
+        using ConstRef = typename T::Const;
+        return Ref<const ConstRef>{e};
+    } else {
+        return Ref<const T>{e};
+    }
+}
+
+template <class T>
+using MakeConstRefType =
+    decltype(make_const_ref_helper(std::declval<const T&>()));
 
 } // namespace better

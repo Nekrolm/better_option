@@ -32,7 +32,7 @@ struct OptionStorage<Ref<T>> {
     Ref<T>& unwrap_unsafe() & noexcept { return storage.ref; }
 
     const typename Ref<T>::Const& unwrap_unsafe() const& noexcept {
-        return storage.const_ref;
+        return storage.ref;
     }
 
     Ref<T>&& unwrap_unsafe() && noexcept {
@@ -54,23 +54,9 @@ struct OptionStorage<Ref<T>> {
     OptionStorage(SomeTag, T&) = delete;
     OptionStorage(SomeTag, T&&) = delete;
 
-    OptionStorage(const OptionStorage&) = default;
-    OptionStorage(OptionStorage&& other) noexcept
-        : OptionStorage(other.take()) {}
-
-    OptionStorage& operator=(const OptionStorage&) = default;
-    OptionStorage& operator=(OptionStorage&& other) noexcept {
-        OptionStorage tmp{std::move(other)};
-        this->swap(tmp);
-        return *this;
-    }
-
-    ~OptionStorage() = default;
-
   private:
     union RawStorage {
         Ref<T> ref;
-        typename Ref<T>::Const const_ref;
         T* raw;
     } storage;
 
