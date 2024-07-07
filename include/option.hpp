@@ -25,6 +25,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include "tags.hpp"
 #include "void.hpp"
 
+#include "invoke_with.hpp"
+
 #include "storage/empty.hpp"
 #include "storage/generic.hpp"
 #include "storage/ref.hpp"
@@ -40,38 +42,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <stdexcept>
 
 namespace better {
-
-template <class F, class... Args>
-constexpr bool IsInvocableWith = std::is_invocable_v<F, Args...>;
-
-template <class F, class V>
-    requires std::is_same_v<Void, std::decay_t<V>>
-constexpr bool IsInvocableWith<F, V> = std::is_invocable_v<F>;
-
-template <class F, class... Args>
-decltype(auto) invoke_with(F&& f, Args&&... args)
-    requires std::is_invocable_v<F, Args...>
-{
-    using R = std::invoke_result_t<F, Args...>;
-    if constexpr (std::is_same_v<R, void>) {
-        std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
-        return Void{};
-    } else {
-        return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
-    }
-}
-template <class F>
-decltype(auto) invoke_with(F&& f, Void)
-    requires std::is_invocable_v<F>
-{
-    using R = std::invoke_result_t<F>;
-    if constexpr (std::is_same_v<R, void>) {
-        std::invoke(std::forward<F>(f));
-        return Void{};
-    } else {
-        return std::invoke(std::forward<F>(f));
-    }
-}
 
 template <class T>
 struct Option : protected OptionStorage<T> {
@@ -221,23 +191,12 @@ struct Option : protected OptionStorage<T> {
     auto map(F&& f) && {
         using ResultT =
             decltype(invoke_with(std::forward<F>(f), std::declval<T>()));
-        if constexpr (std::is_reference_v<ResultT>) {
-            static_assert(std::is_lvalue_reference_v<ResultT>,
-                          "better::Option doesn't support rvalue references");
-            using OptT = Option<Ref<std::remove_reference_t<ResultT>>>;
-            return is_some()
-                       ? OptT{Some, Ref(invoke_with(
-                                        std::forward<F>(f),
-                                        std::move(*this).unwrap_unsafe()))}
-                       : OptT{None};
-        } else {
-            using OptT = Option<ResultT>;
-            return is_some()
-                       ? OptT{Some,
-                              invoke_with(std::forward<F>(f),
-                                          std::move(*this).unwrap_unsafe())}
-                       : OptT{None};
-        }
+
+        using OptT = Option<ResultT>;
+        return is_some()
+                   ? OptT{Some, invoke_with(std::forward<F>(f),
+                                            std::move(*this).unwrap_unsafe())}
+                   : OptT{None};
     }
 
     template <class F>
@@ -245,20 +204,11 @@ struct Option : protected OptionStorage<T> {
     auto map(F&& f) const {
         using ResultT =
             decltype(invoke_with(std::forward<F>(f), std::declval<const T&>()));
-        if constexpr (std::is_reference_v<ResultT>) {
-            static_assert(std::is_lvalue_reference_v<ResultT>,
-                          "better::Option doesn't support rvalue references");
-            using OptT = Option<Ref<std::remove_reference_t<ResultT>>>;
-            return is_some()
-                       ? OptT{Some, Ref(invoke_with(std::forward<F>(f),
-                                                    this->unwrap_unsafe()))}
-                       : OptT{None};
-        } else {
-            using OptT = Option<ResultT>;
-            return is_some() ? OptT{Some, invoke_with(std::forward<F>(f),
-                                                      this->unwrap_unsafe())}
-                             : OptT{None};
-        }
+            
+        using OptT = Option<ResultT>;
+        return is_some() ? OptT{Some, invoke_with(std::forward<F>(f),
+                                                  this->unwrap_unsafe())}
+                         : OptT{None};
     }
 
     template <class F>
