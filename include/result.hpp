@@ -21,15 +21,16 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
-#include "option.hpp"
+#include "storage/generic_result.hpp"
+#include "invoke_with.hpp"
+
+#include <stdexcept>
 
 namespace better {
 
-template <class E>
-struct RawError : RawStorage<E> {};
-
 template <class T, class E>
-struct Result : protected Option<T>, protected RawError<E> {
+struct Result : protected ResultStorage<T, E> {
+    static_assert(ResultStorageImpl<ResultStorage<T, E>, T, E>);
     static_assert(!std::is_const_v<E>, "const cvalified types are not allowed");
     static_assert(!std::is_same_v<E, void>,
                   "built-in void type cannot be supported as a type parameter. "
@@ -40,78 +41,14 @@ struct Result : protected Option<T>, protected RawError<E> {
 
     template <class... Args>
     Result(OkTag, Args&&... args)
-        : Option<T>{Some, std::forward<Args>(args)...} {}
+        : ResultStorage<T, E>{Ok, std::forward<Args>(args)...} {}
 
     template <class... Args>
-    Result(ErrTag, Args&&... args) : Option<T>{None} {
-        new (as_err_storage().get_bytes()) E{std::forward<Args>(args)...};
-    }
+    Result(ErrTag, Args&&... args)
+        : ResultStorage<T, E>{Err, std::forward<Args>(args)...} {}
 
-    ~Result()
-        requires std::is_trivially_destructible_v<E>
-    = default;
+    using ResultStorage<T, E>::is_ok;
 
-    ~Result() noexcept(std::is_nothrow_destructible_v<E>) {
-        if (is_err()) {
-            as_err_storage().get_raw()->~E();
-        }
-    }
-
-    // ---- Copy Constructors ----
-
-    Result(const Result&)
-        requires std::is_trivially_copy_constructible_v<E>
-    = default;
-
-    Result(const Result& other) noexcept(
-        std::is_nothrow_copy_constructible_v<Option<T>> &&
-        std::is_nothrow_copy_constructible_v<E>)
-        : Option<T>(other) {
-        if (other.is_err()) {
-            new (this->as_err_storage().get_bytes())
-                E{*other.as_err_storage().get_raw()};
-        }
-    }
-
-    // ---- Move Constructors ----
-
-    Result(Result&&)
-        requires std::is_trivially_move_constructible_v<E>
-    = default;
-
-    Result(Result&& other) noexcept(
-        std::is_nothrow_move_constructible_v<Option<T>> &&
-        std::is_nothrow_move_constructible_v<E>)
-        : Option<T>(std::move(other)) {
-        if (other.is_err()) {
-            new (this->as_err_storage().get_bytes())
-                E{std::move(*other.as_err_storage().get_raw())};
-        }
-    }
-
-    // ---- Copy assignment -----
-    Result& operator=(const Result&)
-        requires std::is_trivially_copy_assignable_v<E>
-    = default;
-
-    Result& operator=(const Result& other) {
-        Result tmp{other};
-        this->swap(tmp);
-        return *this;
-    }
-
-    // ---- Move assignment -----
-    Result& operator=(Result&&)
-        requires std::is_trivially_move_assignable_v<E>
-    = default;
-
-    Result& operator=(Result&& other) {
-        Result tmp{std::move(other)};
-        this->swap(tmp);
-        return *this;
-    }
-
-    bool is_ok() const { return this->is_some(); }
     bool is_err() const { return !this->is_ok(); }
 
     T&& unwrap() && {
@@ -143,7 +80,7 @@ struct Result : protected Option<T>, protected RawError<E> {
 
     E&& unwrap_err() && {
         if (is_err()) {
-            return std::move(*as_err_storage().get_raw());
+            return std::move(this->unwrap_err_unsafe());
         } else {
             throw std::runtime_error(
                 "Attempt to unwrap_err Result that contains Ok");
@@ -152,7 +89,7 @@ struct Result : protected Option<T>, protected RawError<E> {
 
     E& unwrap_err() & {
         if (is_err()) {
-            return *as_err_storage().get_raw();
+            return this->unwrap_err_unsafe();
         } else {
             throw std::runtime_error(
                 "Attempt to unwrap_err Result that contains Ok");
@@ -161,53 +98,26 @@ struct Result : protected Option<T>, protected RawError<E> {
 
     const E& unwrap_err() const& {
         if (is_err()) {
-            return *as_err_storage().get_raw();
+            return this->unwrap_err_unsafe();
         } else {
             throw std::runtime_error(
                 "Attempt to unwrap_err Result that contains Ok");
         }
     }
 
-    void swap(Result<T, E>& other) {
-        const auto this_ok = this->is_ok();
-        const auto other_ok = other.is_ok();
-
-        Option<T>::swap(other);
-
-        if (this_ok == other_ok) {
-            if (!this_ok) {
-                std::swap(*this->as_err_storage().get_raw(),
-                          *other.as_err_storage().get_raw());
-            }
-            return;
-        }
-
-        auto error_src = this;
-        auto error_dst = &other;
-
-        if (this_ok) {
-            error_src = &other;
-            error_dst = this;
-        }
-
-        new (error_dst->as_err_storage().get_bytes())
-            E{std::move(*error_src->as_err_storage().get_raw())};
-        error_src->_error.get_raw()->~E();
-    }
+    void swap(Result<T, E>& other) { ResultStorage<T, E>::swap(other); }
 
     template <class F>
         requires IsInvocableWith<F, T>
     auto map(F&& f) && {
         using R = decltype(invoke_with(std::forward<F>(f), std::declval<T>()));
 
-        auto new_option =
-            static_cast<Option<T>&&>(*this).map(std::forward<F>(f));
-
-        if (new_option.is_some()) {
-            return Result<R, E>{Some, std::move(new_option)};
+        if (this->is_ok()) {
+            return Result<R, E>{Ok,
+                                invoke_with(std::forward<F>(f),
+                                            std::move(this->unwrap_unsafe()))};
         } else {
-            return Result<R, E>{Err,
-                                std::move(*this->as_err_storage().get_raw())};
+            return Result<R, E>{Err, std::move(this->unwrap_err_unsafe())};
         }
     }
 
@@ -217,10 +127,9 @@ struct Result : protected Option<T>, protected RawError<E> {
         using R =
             decltype(invoke_with(std::forward<F>(f), std::declval<const T&>()));
 
-        auto new_option = Option<T>::map(std::forward<F>(f));
-
-        if (new_option.is_some()) {
-            return Result<R, E>{Some, std::move(new_option)};
+        if (this->is_ok()) {
+            return Result<R, E>{
+                Ok, invoke_with(std::forward<F>(f), this->unwrap_unsafe())};
         } else {
             return Result<R, E>{Err, *this->as_err_storage().get_raw()};
         }
@@ -232,12 +141,12 @@ struct Result : protected Option<T>, protected RawError<E> {
         using NewE =
             decltype(invoke_with(std::forward<F>(f), std::declval<E>()));
 
-        if (this->is_some()) {
-            return Result<T, NewE>{Some, static_cast<Option<T>&&>(*this)};
+        if (this->is_ok()) {
+            return Result<T, NewE>{Ok, std::move(this->unwrap_unsafe())};
         } else {
             return Result<T, NewE>{
                 Err, invoke_with(std::forward<F>(f),
-                                 std::move(*this->as_err_storage().get_raw()))};
+                                 std::move(this->unwrap_err_unsafe()))};
         }
     }
 
@@ -247,22 +156,20 @@ struct Result : protected Option<T>, protected RawError<E> {
         using NewE =
             decltype(invoke_with(std::forward<F>(f), std::declval<E>()));
 
-        if (this->is_some()) {
-            return Result<T, NewE>{Some, static_cast<Option<T>>(*this)};
+        if (this->is_ok()) {
+            return Result<T, NewE>{Ok, this->unwrap_unsafe()};
         } else {
-            return Result<T, NewE>{
-                Err, invoke_with(std::forward<F>(f),
-                                 *this->as_err_storage().get_raw())};
+            return Result<T, NewE>{Err, invoke_with(std::forward<F>(f),
+                                                    this->unwrap_err_unsafe())};
         }
     }
 
     auto as_ref() & {
         using ResultRefT = Result<Ref<T>, Ref<E>>;
-        auto new_option = Option<T>::as_ref();
-        if (new_option.is_some()) {
-            return ResultRefT{Some, std::move(new_option)};
+        if (this->is_ok()) {
+            return ResultRefT{Ok, Ref<T>{this->unwrap_unsafe()}};
         } else {
-            return ResultRefT{Err, Ref<E>{*this->as_err_storage().get_raw()}};
+            return ResultRefT{Err, Ref<E>{this->unwrap_err_unsafe()}};
         }
     }
 
@@ -271,24 +178,17 @@ struct Result : protected Option<T>, protected RawError<E> {
         using NewE = MakeConstRefType<E>;
         using ResultRefT = Result<NewT, NewE>;
 
-        auto new_option = Option<T>::as_ref();
-
-        if (new_option.is_some()) {
-            return ResultRefT{Some, std::move(new_option)};
+        if (this->is_ok()) {
+            return ResultRefT{Ok, NewT{this->unwrap_unsafe()}};
         } else {
-            return ResultRefT{Err, NewE{*this->as_err_storage().get_raw()}};
+            return ResultRefT{Err, NewE{this->unwrap_err_unsafe()}};
         }
     }
 
   private:
-    template <class T1, class E1>
-    friend struct Result;
-
     RawError<E>& as_err_storage() & { return *this; }
 
     const RawError<E>& as_err_storage() const& { return *this; }
-
-    Result(SomeTag, Option<T>&& base) : Option<T>{std::move(base)} {}
 };
 
 } // namespace better

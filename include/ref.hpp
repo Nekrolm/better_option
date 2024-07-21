@@ -29,6 +29,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 namespace better {
 
+template <class T>
+concept IsLvalueReference =
+    std::is_reference_v<T> && std::is_lvalue_reference_v<T>;
+
+
 // Custom reference type
 // Reference types in C++ are not first class citizens
 // they cannot be changed and cannot be referenced

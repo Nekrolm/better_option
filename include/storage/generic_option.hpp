@@ -29,12 +29,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <type_traits>
 #include <utility>
 
-
 namespace better {
-
-template <class T>
-concept IsLvalueReference =
-    std::is_reference_v<T> && std::is_lvalue_reference_v<T>;
 
 // Mandatory interface for OptionStorage:
 // swap(Other)
@@ -57,7 +52,7 @@ concept OptionStorageImpl =
     std::is_constructible_v<Storage, SomeTag, T>;
 
 template <class T>
-struct OptionStorage: private RawStorage<T> {
+struct OptionStorage : private RawStorage<T> {
   public:
     bool is_some() const noexcept { return _initialized; }
 
@@ -74,12 +69,14 @@ struct OptionStorage: private RawStorage<T> {
                 return;
             }
             if (other._initialized) {
-                this->construct(std::move(other).unwrap_unsafe());
+                new (this)
+                    OptionStorage{Some, std::move(other).unwrap_unsafe()};
                 other.reset();
                 return;
             }
             if (this->_initialized) {
-                other.construct(std::move(this->unwrap_unsafe()));
+                new (&other)
+                    OptionStorage{Some, std::move(this->unwrap_unsafe())};
                 this->reset();
                 return;
             }
@@ -97,9 +94,8 @@ struct OptionStorage: private RawStorage<T> {
     OptionStorage(SomeTag, Args&&... args) noexcept(
         std::is_nothrow_constructible_v<T, Args...>)
         requires std::is_constructible_v<T, Args...>
-    {
-        this->construct(std::forward<Args>(args)...);
-    }
+        : RawStorage<T>{InitializeTag{}, std::forward<Args>(args)...},
+          _initialized{true} {}
 
     // -------- Copy constructors -------
     OptionStorage(const OptionStorage&) noexcept
@@ -111,7 +107,7 @@ struct OptionStorage: private RawStorage<T> {
         requires(!std::is_trivially_copy_constructible_v<T>)
     {
         if (other.is_some()) {
-            this->construct(other.unwrap_unsafe());
+            new (this) OptionStorage{Some, other.unwrap_unsafe()};
         }
     }
 
@@ -127,7 +123,7 @@ struct OptionStorage: private RawStorage<T> {
         requires(!std::is_trivially_move_constructible_v<T>)
     {
         if (other.is_some()) {
-            this->construct(std::move(other).unwrap_unsafe());
+            new (this) OptionStorage{Some, std::move(other).unwrap_unsafe()};
         }
     }
 
@@ -179,20 +175,9 @@ struct OptionStorage: private RawStorage<T> {
     }
     // -----------------------
   private:
-    RawStorage<T>& as_storage() & {
-        return *this;
-    }
+    RawStorage<T>& as_storage() & { return *this; }
 
     OptionStorage() noexcept = default;
-
-    template <class... Args>
-    void construct(Args&&... args) noexcept(
-        std::is_nothrow_constructible_v<T, Args...>)
-        requires std::is_constructible_v<T, Args...>
-    {
-        new (this->get_bytes()) T(std::forward<Args>(args)...);
-        this->_initialized = true;
-    }
 
     void reset() noexcept(std::is_nothrow_destructible_v<T>) {
         if constexpr (!std::is_trivially_destructible_v<T>) {

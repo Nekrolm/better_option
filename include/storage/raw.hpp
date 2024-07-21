@@ -22,12 +22,24 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include <type_traits>
 
+#include <cstddef>
+#include <new>
+#include <utility>
+
 namespace better {
-    
+
+struct InitializeTag {}; 
 
 template <class T>
 struct RawStorage {
     alignas(T) std::byte data[sizeof(T)];
+
+    RawStorage() = default;
+
+    template <class... Args>
+    RawStorage(InitializeTag, Args&&... args) {
+        new (get_bytes()) T { std::forward<Args>(args)... };
+    }
 
     char* get_bytes() noexcept { return reinterpret_cast<char*>(data); }
 
@@ -50,6 +62,12 @@ struct RawStorage<T>: private T {
     const T* get_raw() const noexcept {
         return this;
     };
+
+
+    RawStorage() = default;
+
+    template <class... Args>
+    RawStorage(InitializeTag, Args&&... args) : T { std::forward<Args>(args)... } {}
 };
 
 }

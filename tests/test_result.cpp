@@ -1,4 +1,5 @@
 #include "result.hpp"
+#include "void.hpp"
 
 #include <iostream>
 #include <string>
@@ -7,10 +8,10 @@
 using better::Err;
 using better::None;
 using better::Ok;
-using better::Option;
 using better::Ref;
 using better::Result;
 using better::Some;
+using better::Void;
 
 int main() {
 
@@ -50,6 +51,12 @@ int main() {
                                  Result<Ref<const std::string>, size_t>>);
 
     std::cout << "mapped_err: " << mapped_err.unwrap_err() << "\n";
+
+    struct EmptyErr {};
+    static_assert(sizeof(Result<int, EmptyErr>) == 2 * sizeof(int));
+    static_assert(sizeof(Result<Void, EmptyErr>) == sizeof(bool));
+    
+    static_assert(sizeof(Result<int, int>) == 2 * sizeof(int));
 
     return 0;
 }

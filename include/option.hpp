@@ -27,7 +27,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #include "invoke_with.hpp"
 
-#include "storage/generic.hpp"
+#include "storage/generic_option.hpp"
 #include "storage/ref.hpp"
 
 #include <bit>
