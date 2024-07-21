@@ -28,6 +28,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 namespace better {
 
+template <class T>
+struct Option;
+
 template <class T, class E>
 struct Result : protected ResultStorage<T, E> {
     static_assert(ResultStorageImpl<ResultStorage<T, E>, T, E>);
@@ -182,6 +185,38 @@ struct Result : protected ResultStorage<T, E> {
             return ResultRefT{Ok, NewT{this->unwrap_unsafe()}};
         } else {
             return ResultRefT{Err, NewE{this->unwrap_err_unsafe()}};
+        }
+    }
+
+    Option<T> ok() && {
+        if (this->is_ok()) {
+            return Option<T> { Some, std::move(this->unwrap_unsafe())};
+        } else {
+            return Option<T> { None };
+        }
+    }
+
+    Option<T> ok() const& {
+        if (this->is_ok()) {
+            return Option<T> { Some, this->unwrap_unsafe()};
+        } else {
+            return Option<T> { None };
+        }
+    }
+
+    Option<E> err() && {
+        if (this->is_err()) {
+            return Option<E> { Some, std::move(this->unwrap_err_unsafe())};
+        } else {
+            return Option<E> { None };
+        }
+    }
+
+    Option<E> err() const& {
+        if (this->is_err()) {
+            return Option<E> { Some, this->unwrap_err_unsafe()};
+        } else {
+            return Option<E> { None };
         }
     }
 

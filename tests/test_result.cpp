@@ -1,4 +1,5 @@
 #include "result.hpp"
+#include "option.hpp"
 #include "void.hpp"
 
 #include <iostream>
@@ -57,6 +58,8 @@ int main() {
     static_assert(sizeof(Result<Void, EmptyErr>) == sizeof(bool));
     
     static_assert(sizeof(Result<int, int>) == 2 * sizeof(int));
+
+    mapped_err.ok();
 
     return 0;
 }
