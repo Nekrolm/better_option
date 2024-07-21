@@ -39,5 +39,17 @@ int main() {
 
     auto ref = const_ref_ref_r_str.unwrap();
 
+    Result<std::string, std::string> err_str = {Err, "error"};
+
+    auto ref_err = std::as_const(err_str).as_ref();
+
+    auto mapped_err = ref_err.map_err(
+        [](const std::string& err_s) { return err_s.length(); });
+
+    static_assert(std::is_same_v<decltype(mapped_err),
+                                 Result<Ref<const std::string>, size_t>>);
+
+    std::cout << "mapped_err: " << mapped_err.unwrap_err() << "\n";
+
     return 0;
 }

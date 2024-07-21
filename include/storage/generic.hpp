@@ -20,12 +20,15 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #pragma once
 
+#include "raw.hpp"
+
 #include "../ref.hpp"
 #include "../tags.hpp"
 
 #include <concepts>
 #include <type_traits>
 #include <utility>
+
 
 namespace better {
 
@@ -54,7 +57,7 @@ concept OptionStorageImpl =
     std::is_constructible_v<Storage, SomeTag, T>;
 
 template <class T>
-struct OptionStorage {
+struct OptionStorage: private RawStorage<T> {
   public:
     bool is_some() const noexcept { return _initialized; }
 
@@ -62,7 +65,7 @@ struct OptionStorage {
         std::is_trivially_move_constructible_v<T> ||
         std::is_nothrow_move_constructible_v<T>) {
         if constexpr (std::is_trivially_move_constructible_v<T>) {
-            std::swap(this->_storage, other._storage);
+            std::swap(this->as_storage(), other.as_storage());
             std::swap(this->_initialized, other._initialized);
             return;
         } else {
@@ -84,9 +87,9 @@ struct OptionStorage {
         // both None, do nothing
     }
 
-    T& unwrap_unsafe() & noexcept { return *_storage.get_raw(); }
-    T&& unwrap_unsafe() && noexcept { return std::move(*_storage.get_raw()); }
-    const T& unwrap_unsafe() const& noexcept { return *_storage.get_raw(); }
+    T& unwrap_unsafe() & noexcept { return *this->get_raw(); }
+    T&& unwrap_unsafe() && noexcept { return std::move(*this->get_raw()); }
+    const T& unwrap_unsafe() const& noexcept { return *this->get_raw(); }
 
     OptionStorage(NoneTag) noexcept : OptionStorage() {}
 
@@ -176,6 +179,10 @@ struct OptionStorage {
     }
     // -----------------------
   private:
+    RawStorage<T>& as_storage() & {
+        return *this;
+    }
+
     OptionStorage() noexcept = default;
 
     template <class... Args>
@@ -183,33 +190,19 @@ struct OptionStorage {
         std::is_nothrow_constructible_v<T, Args...>)
         requires std::is_constructible_v<T, Args...>
     {
-        new (this->_storage.get_bytes()) T(std::forward<Args>(args)...);
+        new (this->get_bytes()) T(std::forward<Args>(args)...);
         this->_initialized = true;
     }
 
     void reset() noexcept(std::is_nothrow_destructible_v<T>) {
         if constexpr (!std::is_trivially_destructible_v<T>) {
             if (_initialized) {
-                _storage.get_raw()->~T();
+                this->get_raw()->~T();
             }
         }
         _initialized = false;
     }
 
-    struct RawStorage {
-        alignas(T) std::byte data[sizeof(T)];
-
-        char* get_bytes() noexcept { return reinterpret_cast<char*>(data); }
-
-        T* get_raw() noexcept {
-            return std::launder(reinterpret_cast<T*>(data));
-        }
-        const T* get_raw() const noexcept {
-            return std::launder(reinterpret_cast<const T*>(data));
-        }
-    };
-
-    RawStorage _storage;
     bool _initialized = false;
 };
 

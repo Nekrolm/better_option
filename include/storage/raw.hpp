@@ -20,34 +20,36 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 */
 #pragma once
 
-#include "generic.hpp"
+#include <type_traits>
 
 namespace better {
-
-// This specialization covers all empty trivial types, including
-// better::Void
+    
 
 template <class T>
-    requires std::is_trivial_v<T> && std::is_empty_v<T>
-struct OptionStorage<T> : protected T {
+struct RawStorage {
+    alignas(T) std::byte data[sizeof(T)];
 
-    const T& unwrap_unsafe() const& { return *this; }
-    T& unwrap_unsafe() & { return *this; }
-    T&& unwrap_unsafe() && { return std::move(*this); }
+    char* get_bytes() noexcept { return reinterpret_cast<char*>(data); }
 
-    bool is_some() const noexcept { return _is_some; }
-    void swap(OptionStorage& other) noexcept {
-        std::swap(this->_is_some, other._is_some);
+    T* get_raw() noexcept {
+        return std::launder(reinterpret_cast<T*>(data));
     }
-
-    OptionStorage(NoneTag) noexcept : _is_some{false} {}
-    template <class... Args>
-    OptionStorage(SomeTag, Args&&... args) noexcept(
-        std::is_nothrow_constructible_v<T, Args...>)
-        : T{std::forward<Args>(args)...}, _is_some{true} {}
-
-  private:
-    bool _is_some = false;
+    const T* get_raw() const noexcept {
+        return std::launder(reinterpret_cast<const T*>(data));
+    };
 };
 
-} // namespace better
+template<class T>
+requires std::is_trivial_v<T> && std::is_empty_v<T>
+struct RawStorage<T>: private T {
+    char* get_bytes() noexcept { return reinterpret_cast<char*>(this); }
+
+    T* get_raw() noexcept {
+        return this;
+    }
+    const T* get_raw() const noexcept {
+        return this;
+    };
+};
+
+}

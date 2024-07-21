@@ -25,8 +25,11 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 namespace better {
 
+template <class E>
+struct RawError : RawStorage<E> {};
+
 template <class T, class E>
-struct Result : protected Option<T> {
+struct Result : protected Option<T>, protected RawError<E> {
     static_assert(!std::is_const_v<E>, "const cvalified types are not allowed");
     static_assert(!std::is_same_v<E, void>,
                   "built-in void type cannot be supported as a type parameter. "
@@ -41,7 +44,7 @@ struct Result : protected Option<T> {
 
     template <class... Args>
     Result(ErrTag, Args&&... args) : Option<T>{None} {
-        new (_error.get_bytes()) E{std::forward<Args>(args)...};
+        new (as_err_storage().get_bytes()) E{std::forward<Args>(args)...};
     }
 
     ~Result()
@@ -50,7 +53,7 @@ struct Result : protected Option<T> {
 
     ~Result() noexcept(std::is_nothrow_destructible_v<E>) {
         if (is_err()) {
-            _error.get_raw()->~E();
+            as_err_storage().get_raw()->~E();
         }
     }
 
@@ -65,7 +68,8 @@ struct Result : protected Option<T> {
         std::is_nothrow_copy_constructible_v<E>)
         : Option<T>(other) {
         if (other.is_err()) {
-            new (this->_error.get_bytes()) E{*other._error.get_raw()};
+            new (this->as_err_storage().get_bytes())
+                E{*other.as_err_storage().get_raw()};
         }
     }
 
@@ -80,8 +84,8 @@ struct Result : protected Option<T> {
         std::is_nothrow_move_constructible_v<E>)
         : Option<T>(std::move(other)) {
         if (other.is_err()) {
-            new (this->_error.get_bytes())
-                E{std::move(*other._error.get_raw())};
+            new (this->as_err_storage().get_bytes())
+                E{std::move(*other.as_err_storage().get_raw())};
         }
     }
 
@@ -139,7 +143,7 @@ struct Result : protected Option<T> {
 
     E&& unwrap_err() && {
         if (is_err()) {
-            return std::move(*_error.get_raw());
+            return std::move(*as_err_storage().get_raw());
         } else {
             throw std::runtime_error(
                 "Attempt to unwrap_err Result that contains Ok");
@@ -148,7 +152,7 @@ struct Result : protected Option<T> {
 
     E& unwrap_err() & {
         if (is_err()) {
-            return *_error.get_raw();
+            return *as_err_storage().get_raw();
         } else {
             throw std::runtime_error(
                 "Attempt to unwrap_err Result that contains Ok");
@@ -157,7 +161,7 @@ struct Result : protected Option<T> {
 
     const E& unwrap_err() const& {
         if (is_err()) {
-            return *_error.get_raw();
+            return *as_err_storage().get_raw();
         } else {
             throw std::runtime_error(
                 "Attempt to unwrap_err Result that contains Ok");
@@ -172,7 +176,8 @@ struct Result : protected Option<T> {
 
         if (this_ok == other_ok) {
             if (!this_ok) {
-                std::swap(*this->_error.get_raw(), *other._error.get_raw());
+                std::swap(*this->as_err_storage().get_raw(),
+                          *other.as_err_storage().get_raw());
             }
             return;
         }
@@ -185,8 +190,8 @@ struct Result : protected Option<T> {
             error_dst = this;
         }
 
-        new (error_dst->_error.get_bytes())
-            E{std::move(*error_src->_error.get_raw())};
+        new (error_dst->as_err_storage().get_bytes())
+            E{std::move(*error_src->as_err_storage().get_raw())};
         error_src->_error.get_raw()->~E();
     }
 
@@ -201,7 +206,8 @@ struct Result : protected Option<T> {
         if (new_option.is_some()) {
             return Result<R, E>{Some, std::move(new_option)};
         } else {
-            return Result<R, E>{Err, std::move(*this->_error.get_raw())};
+            return Result<R, E>{Err,
+                                std::move(*this->as_err_storage().get_raw())};
         }
     }
 
@@ -216,7 +222,37 @@ struct Result : protected Option<T> {
         if (new_option.is_some()) {
             return Result<R, E>{Some, std::move(new_option)};
         } else {
-            return Result<R, E>{Err, *this->_error.get_raw()};
+            return Result<R, E>{Err, *this->as_err_storage().get_raw()};
+        }
+    }
+
+    template <class F>
+        requires IsInvocableWith<F, E>
+    auto map_err(F&& f) && {
+        using NewE =
+            decltype(invoke_with(std::forward<F>(f), std::declval<E>()));
+
+        if (this->is_some()) {
+            return Result<T, NewE>{Some, static_cast<Option<T>&&>(*this)};
+        } else {
+            return Result<T, NewE>{
+                Err, invoke_with(std::forward<F>(f),
+                                 std::move(*this->as_err_storage().get_raw()))};
+        }
+    }
+
+    template <class F>
+        requires IsInvocableWith<F, E>
+    auto map_err(F&& f) const& {
+        using NewE =
+            decltype(invoke_with(std::forward<F>(f), std::declval<E>()));
+
+        if (this->is_some()) {
+            return Result<T, NewE>{Some, static_cast<Option<T>>(*this)};
+        } else {
+            return Result<T, NewE>{
+                Err, invoke_with(std::forward<F>(f),
+                                 *this->as_err_storage().get_raw())};
         }
     }
 
@@ -226,7 +262,7 @@ struct Result : protected Option<T> {
         if (new_option.is_some()) {
             return ResultRefT{Some, std::move(new_option)};
         } else {
-            return ResultRefT{Err, Ref<E>{*this->_error.get_raw()}};
+            return ResultRefT{Err, Ref<E>{*this->as_err_storage().get_raw()}};
         }
     }
 
@@ -240,7 +276,7 @@ struct Result : protected Option<T> {
         if (new_option.is_some()) {
             return ResultRefT{Some, std::move(new_option)};
         } else {
-            return ResultRefT{Err, NewE{*this->_error.get_raw()}};
+            return ResultRefT{Err, NewE{*this->as_err_storage().get_raw()}};
         }
     }
 
@@ -248,21 +284,11 @@ struct Result : protected Option<T> {
     template <class T1, class E1>
     friend struct Result;
 
+    RawError<E>& as_err_storage() & { return *this; }
+
+    const RawError<E>& as_err_storage() const& { return *this; }
+
     Result(SomeTag, Option<T>&& base) : Option<T>{std::move(base)} {}
-
-    struct RawStorage {
-        alignas(E) std::byte data[sizeof(E)];
-
-        char* get_bytes() noexcept { return reinterpret_cast<char*>(data); }
-
-        E* get_raw() noexcept {
-            return std::launder(reinterpret_cast<E*>(data));
-        }
-        const E* get_raw() const noexcept {
-            return std::launder(reinterpret_cast<const E*>(data));
-        }
-    };
-    RawStorage _error;
 };
 
 } // namespace better
