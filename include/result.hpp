@@ -230,10 +230,9 @@ struct Result : protected ResultStorage<T, E> {
     {
         using ResultOpt =
             decltype(invoke_with(std::forward<F>(f), std::declval<T>()));
-        return is_ok()
-                   ? invoke_with(std::forward<F>(f),
-                                 std::move(this->unwrap_unsafe()))
-                   : ResultOpt{Err, std::move(this->unwrap_err_unsafe())};
+        return is_ok() ? invoke_with(std::forward<F>(f),
+                                     std::move(this->unwrap_unsafe()))
+                       : ResultOpt{Err, std::move(this->unwrap_err_unsafe())};
     }
 
     template <class F>
@@ -254,7 +253,8 @@ struct Result : protected ResultStorage<T, E> {
     auto or_else(F&& f) &&
         requires IsInvocableWith<F, E> &&
                  std::is_constructible_v<
-                     decltype(invoke_with(std::forward<F>(f), std::declval<E>())),
+                     decltype(invoke_with(std::forward<F>(f),
+                                          std::declval<E>())),
                      OkTag, T>
     {
         using ResultOpt =
@@ -277,6 +277,53 @@ struct Result : protected ResultStorage<T, E> {
         return is_err()
                    ? invoke_with(std::forward<F>(f), this->unwrap_err_unsafe())
                    : ResultOpt{Ok, this->unwrap_unsafe()};
+    }
+
+    template <class OnOk, class OnErr>
+    auto map_or_else(OnOk&& on_ok, OnErr&& on_err)
+        const& -> decltype(invoke_with(std::forward<OnOk>(on_ok),
+                                       std::declval<const T&>()))
+        requires IsInvocableWith<OnOk, const T&> &&
+                 IsInvocableWith<OnErr, const E&> &&
+                 std::is_convertible_v<
+                     decltype(invoke_with(std::forward<OnErr>(on_err),
+                                          std::declval<const E&>())),
+                     decltype(invoke_with(std::forward<OnOk>(on_ok),
+                                          std::declval<const T&>()))>
+    {
+        // Note: ternary operators must not be used here
+        // it can produce wrong results due to slicing
+        if (this->is_ok()) {
+            return invoke_with(std::forward<OnOk>(on_ok),
+                               this->unwrap_unsafe());
+        } else {
+            return invoke_with(std::forward<OnErr>(on_err),
+                               this->unwrap_err_unsafe());
+        }
+    }
+
+    template <class OnOk, class OnErr>
+    auto map_or_else(
+        OnOk&& on_ok,
+        OnErr&& on_err) && -> decltype(invoke_with(std::forward<OnOk>(on_ok),
+                                                   std::declval<T>()))
+        requires IsInvocableWith<OnOk, T> && IsInvocableWith<OnErr, E> &&
+                 std::is_convertible_v<
+                     decltype(invoke_with(std::forward<OnErr>(on_err),
+                                          std::declval<E>())),
+                     decltype(invoke_with(std::forward<OnOk>(on_ok),
+                                          std::declval<T>()))>
+
+    {
+        // Note: ternary operators must not be used here
+        // it can produce wrong results due to slicing
+        if (this->is_ok()) {
+            return invoke_with(std::forward<OnOk>(on_ok),
+                               std::move(this->unwrap_unsafe()));
+        } else {
+            return invoke_with(std::forward<OnErr>(on_err),
+                               std::move(this->unwrap_err_unsafe()));
+        }
     }
 
   private:

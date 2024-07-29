@@ -31,6 +31,17 @@ void test_result_and_then() {
     std::cout << "err_val message: " << err_msg << "\n";
 }
 
+void test_result_map_or_else() {
+    std::cout << "test_result_map_or_else\n";
+
+    Result<std::string, int> r = {Err, 55};
+
+    auto str = r.map_or_else([](std::string_view s) { return s; },
+                             [](int x) { return "some integer"; });
+
+    std::cout << "str=" << str << "\n";
+}
+
 void test_result_or_else() {
     std::cout << "test_result_or_else\n";
     Result<int, std::string> res = {Ok, 55};
@@ -57,6 +68,8 @@ int main() {
 
     test_result_and_then();
     test_result_or_else();
+    test_result_map_or_else();
+
 
     Result<int, std::string> res = {Ok, 55};
     Result<int, std::string> err = {Err, "hello"};
