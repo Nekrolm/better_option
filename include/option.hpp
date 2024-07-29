@@ -218,8 +218,8 @@ struct Option : protected OptionStorage<T> {
                      NoneTag>
     {
         using ResultOpt =
-            decltype(invoke_with(std::forward(f), std::declval<T>()));
-        return is_some() ? invoke_with(std::forward(f),
+            decltype(invoke_with(std::forward<F>(f), std::declval<T>()));
+        return is_some() ? invoke_with(std::forward<F>(f),
                                        std::move(*this).unwrap_unsafe())
                          : ResultOpt{None};
     }
@@ -228,13 +228,13 @@ struct Option : protected OptionStorage<T> {
     auto and_then(F&& f) const&
         requires IsInvocableWith<F, const T&> &&
                  std::is_constructible_v<
-                     decltype(invoke_with(std::forward(f),
+                     decltype(invoke_with(std::forward<F>(f),
                                           std::declval<const T&>())),
                      NoneTag>
     {
         using ResultOpt =
-            decltype(invoke_with(std::forward(f), std::declval<T>()));
-        return is_some() ? invoke_with(std::forward(f), this->unwrap_unsafe())
+            decltype(invoke_with(std::forward<F>(f), std::declval<T>()));
+        return is_some() ? invoke_with(std::forward<F>(f), this->unwrap_unsafe())
                          : ResultOpt{None};
     }
 

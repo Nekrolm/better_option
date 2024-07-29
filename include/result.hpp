@@ -21,8 +21,8 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #pragma once
 
-#include "storage/generic_result.hpp"
 #include "invoke_with.hpp"
+#include "storage/generic_result.hpp"
 
 #include <stdexcept>
 
@@ -190,34 +190,93 @@ struct Result : protected ResultStorage<T, E> {
 
     Option<T> ok() && {
         if (this->is_ok()) {
-            return Option<T> { Some, std::move(this->unwrap_unsafe())};
+            return Option<T>{Some, std::move(this->unwrap_unsafe())};
         } else {
-            return Option<T> { None };
+            return Option<T>{None};
         }
     }
 
     Option<T> ok() const& {
         if (this->is_ok()) {
-            return Option<T> { Some, this->unwrap_unsafe()};
+            return Option<T>{Some, this->unwrap_unsafe()};
         } else {
-            return Option<T> { None };
+            return Option<T>{None};
         }
     }
 
     Option<E> err() && {
         if (this->is_err()) {
-            return Option<E> { Some, std::move(this->unwrap_err_unsafe())};
+            return Option<E>{Some, std::move(this->unwrap_err_unsafe())};
         } else {
-            return Option<E> { None };
+            return Option<E>{None};
         }
     }
 
     Option<E> err() const& {
         if (this->is_err()) {
-            return Option<E> { Some, this->unwrap_err_unsafe()};
+            return Option<E>{Some, this->unwrap_err_unsafe()};
         } else {
-            return Option<E> { None };
+            return Option<E>{None};
         }
+    }
+
+    template <class F>
+    auto and_then(F&& f) &&
+        requires IsInvocableWith<F, T> &&
+                 std::is_constructible_v<
+                     decltype(invoke_with(std::forward<F>(f),
+                                          std::declval<T>())),
+                     ErrTag, E>
+    {
+        using ResultOpt =
+            decltype(invoke_with(std::forward<F>(f), std::declval<T>()));
+        return is_ok()
+                   ? invoke_with(std::forward<F>(f),
+                                 std::move(this->unwrap_unsafe()))
+                   : ResultOpt{Err, std::move(this->unwrap_err_unsafe())};
+    }
+
+    template <class F>
+    auto and_then(F&& f) const&
+        requires IsInvocableWith<F, const T&> &&
+                 std::is_constructible_v<
+                     decltype(invoke_with(std::forward<F>(f),
+                                          std::declval<const T&>())),
+                     ErrTag, const E&>
+    {
+        using ResultOpt =
+            decltype(invoke_with(std::forward<F>(f), std::declval<T>()));
+        return is_ok() ? invoke_with(std::forward<F>(f), this->unwrap_unsafe())
+                       : ResultOpt{Err, this->unwrap_err_unsafe()};
+    }
+
+    template <class F>
+    auto or_else(F&& f) &&
+        requires IsInvocableWith<F, E> &&
+                 std::is_constructible_v<
+                     decltype(invoke_with(std::forward<F>(f), std::declval<E>())),
+                     OkTag, T>
+    {
+        using ResultOpt =
+            decltype(invoke_with(std::forward<F>(f), std::declval<E>()));
+        return is_err() ? invoke_with(std::forward<F>(f),
+                                      std::move(this->unwrap_err_unsafe()))
+                        : ResultOpt{Ok, std::move(this->unwrap_unsafe())};
+    }
+
+    template <class F>
+    auto or_else(F&& f) const&
+        requires IsInvocableWith<F, const E&> &&
+                 std::is_constructible_v<
+                     decltype(invoke_with(std::forward<F>(f),
+                                          std::declval<const E&>())),
+                     OkTag, T>
+    {
+        using ResultOpt =
+            decltype(invoke_with(std::forward<F>(f), std::declval<const E&>()));
+        return is_err()
+                   ? invoke_with(std::forward<F>(f), this->unwrap_err_unsafe())
+                   : ResultOpt{Ok, this->unwrap_unsafe()};
     }
 
   private:

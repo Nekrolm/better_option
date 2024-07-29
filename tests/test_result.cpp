@@ -1,5 +1,5 @@
-#include "result.hpp"
 #include "option.hpp"
+#include "result.hpp"
 #include "void.hpp"
 
 #include <iostream>
@@ -14,7 +14,49 @@ using better::Result;
 using better::Some;
 using better::Void;
 
+void test_result_and_then() {
+    std::cout << "test_result_and_then\n";
+    Result<int, std::string> res = {Ok, 55};
+    Result<int, std::string> err = {Err, "world"};
+
+    auto ok_val =
+        res.and_then([](int x) { return Result<Void, std::string_view>{Ok}; });
+    auto err_val =
+        err.and_then([](int x) { return Result<Void, std::string_view>{Ok}; });
+
+    std::cout << "ok_value is ok: " << ok_val.is_ok() << "\n";
+    std::cout << "err_val is err: " << err_val.is_err() << "\n";
+
+    auto err_msg = err_val.unwrap_err();
+    std::cout << "err_val message: " << err_msg << "\n";
+}
+
+void test_result_or_else() {
+    std::cout << "test_result_or_else\n";
+    Result<int, std::string> res = {Ok, 55};
+    Result<int, std::string> err = {Err, "world"};
+
+    auto ok_val = res.or_else([](std::string_view x) {
+        return Result<ssize_t, std::string_view>{
+            Ok, static_cast<ssize_t>(x.length())};
+    });
+    auto err_val = err.or_else([](std::string_view x) {
+        return Result<int, std::string_view>{Err, x};
+    });
+
+    std::cout << "ok_value is ok: " << ok_val.is_ok() << "\n";
+    std::cout << "err_val is err: " << err_val.is_err() << "\n";
+
+    auto err_msg = err_val.unwrap_err();
+    std::cout << "err_val message: " << err_msg << "\n";
+    auto ok_x = ok_val.unwrap();
+    std::cout << "ok_val: " << ok_x << "\n";
+}
+
 int main() {
+
+    test_result_and_then();
+    test_result_or_else();
 
     Result<int, std::string> res = {Ok, 55};
     Result<int, std::string> err = {Err, "hello"};
@@ -56,7 +98,7 @@ int main() {
     struct EmptyErr {};
     static_assert(sizeof(Result<int, EmptyErr>) == 2 * sizeof(int));
     static_assert(sizeof(Result<Void, EmptyErr>) == sizeof(bool));
-    
+
     static_assert(sizeof(Result<int, int>) == 2 * sizeof(int));
 
     mapped_err.ok();
